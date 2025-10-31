@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import mysql from 'mysql2/promise';
+import { pool } from './db.js';
+import nlp from './utils/nlp.js';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import fs from 'fs';
@@ -37,7 +38,7 @@ app.use((req, res, next) => {
             // Quote keys
             s = s.replace(/([,{\s])([A-Za-z0-9_\-]+)\s*:/g, '$1"$2":');
             // Quote unquoted string values (stop at , or })
-            s = s.replace(/:\s*([^\",\]\}\s][^,\}]*)(?=[,\}])/g, (m, p1) => {
+            s = s.replace(/:\s*([^\",\]\}\s][^,\}]*) (?=[,\}])/g, (m, p1) => {
               const v = p1.trim();
               // if it's a number, boolean, or null leave it
               if (/^-?\d+(?:\.\d+)?$/.test(v) || /^(true|false|null)$/.test(v)) return ':' + v;
@@ -69,14 +70,7 @@ app.get('/health', (req, res) => {
   return res.json({ ok: true, pid: process.pid, env: process.env.NODE_ENV || 'development' });
 });
 
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || '127.0.0.1',
-  port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASS || '',
-  database: process.env.DB_NAME || 'ai_chatbot',
-  connectionLimit: 10,
-});
+// pool is imported from server/db.js
 
 // shared login handler: accept either username OR email
 async function handleLogin(req, res) {
@@ -157,10 +151,41 @@ if (ENABLE_RAG) {
         console.log('[mock /api/rag] received body:', JSON.stringify(body).slice(0,1000));
         const candidate = body.prompt || body.question || body.q || body.message || body.text || '';
         const q = candidate ? String(candidate).trim() : '';
-        const qLower = q.toLowerCase();
 
         // For any incoming question, perform an embed -> Qdrant lookup and synthesize an answer from snippets.
         if (q) {
+          // analyze incoming user message (intent + sentiment) and persist to conversation_memory
+          try {
+            const analysis = await nlp.analyzeMessage(q);
+            // id_user may be provided in request body (if frontend sends it after login)
+            const id_user = body.id_user ? Number(body.id_user) : null;
+            try {
+              await pool.query(
+                'INSERT INTO conversation_memory (id_user, sender, message, intent, sentiment_score, sentiment_label) VALUES (?,?,?,?,?,?)',
+                [id_user, 'user', q, analysis.intent, analysis.sentiment.score, analysis.sentiment.label]
+              );
+            } catch (e) {
+              console.warn('[mock /api/rag] failed to persist conversation memory:', e && e.message ? e.message : e);
+            }
+
+            // store analysis metadata to include in response
+            body._analysis = analysis;
+          } catch (e) {
+            console.warn('[mock /api/rag] NLP analysis failed:', e && e.message ? e.message : e);
+          }
+
+          // Fetch recent conversation for personalization (last 10)
+          let recent = [];
+          if (body.id_user) {
+            try {
+              const [rows] = await pool.query(
+                'SELECT sender, message FROM conversation_memory WHERE id_user = ? ORDER BY id DESC LIMIT 10',
+                [Number(body.id_user)]
+              );
+              recent = rows || [];
+            } catch (_) {}
+          }
+
           // call embed service
           const EMBED_URL = process.env.EMBED_URL || 'http://embed:5001';
           const QDRANT_URL = process.env.QDRANT_URL || 'http://qdrant:6333';
@@ -181,9 +206,23 @@ if (ENABLE_RAG) {
 
           // query qdrant
           const { QdrantClient } = await import('@qdrant/js-client-rest');
-          const qdrant = new QdrantClient({ url: QDRANT_URL });
+          const qdrant = new QdrantClient({ url: QDRANT_URL, checkCompatibility: false });
           const top_k = Number(body.top_k || 3);
-          const searchRes = await qdrant.search({ collection_name: process.env.QDRANT_COLLECTION || 'documents', vector: qvec, limit: top_k, with_payload: true });
+          const collectionName = process.env.QDRANT_COLLECTION || 'documents';
+          let searchRes = null;
+          try {
+            searchRes = await qdrant.search(collectionName, { vector: qvec, limit: top_k, with_payload: true });
+          } catch (e) {
+            try {
+              const info = await qdrant.getCollection(collectionName);
+              const expected = (info && info.vectors_count) ? undefined : (info && info.config && info.config.params && info.config.params.vectors && info.config.params.vectors.size);
+              const got = Array.isArray(qvec) ? qvec.length : undefined;
+              if (got && expected && e && String(e).toLowerCase().includes('bad request')) {
+                return res.status(400).json({ error: 'Vector size mismatch between query and collection', expected, got, hint: 'Pastikan EMBED_MODEL sama dengan model saat ingestion, lalu jalankan ulang ingestion.' });
+              }
+            } catch (_) {}
+            throw e;
+          }
 
           // build snippets and sources
           const snippets = [];
@@ -199,10 +238,12 @@ if (ENABLE_RAG) {
             compactHits.push({ id: hit.id, score: hit.score, filename, page, snippet });
           }
 
-          // Synthesize a concise answer from top snippets (no external LLM)
+          // Synthesize a concise answer from top snippets (no external LLM), with a light personalization prefix if sentiment negative
           let answer = '';
+          const sentimentLabel = body._analysis && body._analysis.sentiment && body._analysis.sentiment.label;
+          const prefix = sentimentLabel === 'negative' ? 'Saya mengerti ini penting. ' : '';
           if (snippets.length === 0) {
-            answer = "Maaf, tidak menemukan dokumen yang relevan.";
+            answer = prefix + 'Maaf, tidak menemukan dokumen yang relevan.';
           } else {
             const use = snippets.slice(0, Math.min(2, snippets.length));
             const sentences = use.map(s => {
@@ -211,10 +252,25 @@ if (ENABLE_RAG) {
               return m ? m[0].trim() : txt.slice(0, 200);
             });
             const srcList = sources.slice(0, Math.min(3, sources.length)).map(s => `${s.filename}${s.page ? ' (p' + s.page + ')' : ''}`).join(', ');
-            answer = sentences.join(' ') + `\n\nSumber: ${srcList}`;
+            answer = prefix + sentences.join(' ') + `\n\nSumber: ${srcList}`;
           }
 
-          return res.json({ answer, sources, raw_hits: compactHits });
+          // persist bot answer as memory and include metadata
+          try {
+            const botText = answer;
+            try {
+              await pool.query(
+                'INSERT INTO conversation_memory (id_user, sender, message, intent, sentiment_score, sentiment_label) VALUES (?,?,?,?,?,?)',
+                [body.id_user ? Number(body.id_user) : null, 'bot', botText, 'answer', null, null]
+              );
+            } catch (e) {
+              console.warn('[mock /api/rag] failed to persist bot memory:', e && e.message ? e.message : e);
+            }
+          } catch (e) {
+            /* ignore */
+          }
+
+          return res.json({ answer, sources, raw_hits: compactHits, metadata: body._analysis || null, context_messages: recent });
         }
 
         // default behavior

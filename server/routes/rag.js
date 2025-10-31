@@ -1,6 +1,8 @@
 import express from 'express';
 import fetch from 'node-fetch';
 import path from 'path';
+import { pool } from '../db.js';
+import nlp from '../utils/nlp.js';
 
 const router = express.Router();
 
@@ -51,6 +53,22 @@ async function extractTextFromOllamaResponse(resp) {
   try { return JSON.stringify(resp); } catch { return String(resp); }
 }
 
+async function getRecentConversation(id_user, limit = 10) {
+  if (!id_user) return [];
+  try {
+    const [rows] = await pool.query('SELECT sender, message FROM conversation_memory WHERE id_user = ? ORDER BY id DESC LIMIT ?', [id_user, Number(limit)]);
+    return rows || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function buildUserContext(messages) {
+  if (!messages || !messages.length) return '';
+  const last = messages.slice(-5).map(m => `${m.sender}: ${m.message}`).join('\n');
+  return `Recent conversation:\n${last}`;
+}
+
 router.post('/', async (req, res) => {
   try {
     // Safety: disable RAG by default unless ENABLE_RAG=true is explicitly set in env.
@@ -60,11 +78,29 @@ router.post('/', async (req, res) => {
     if (!ENABLE_RAG) {
       return res.status(503).json({ error: 'RAG disabled (set ENABLE_RAG=true to enable)' });
     }
-    const { prompt, top_k = 5 } = req.body || {};
+    const { prompt, top_k = 5, id_user: rawIdUser } = req.body || {};
+    const id_user = rawIdUser ? Number(rawIdUser) : null;
+
+    // analyze and persist the incoming prompt (intent + sentiment)
+    let analysis = null;
+    try {
+      analysis = await nlp.analyzeMessage(prompt || '');
+      try {
+        await pool.query('INSERT INTO conversation_memory (id_user, sender, message, intent, sentiment_score, sentiment_label) VALUES (?,?,?,?,?,?)', [id_user, 'user', prompt || '', analysis.intent, analysis.sentiment.score, analysis.sentiment.label]);
+      } catch (e) {
+        console.warn('[rag] failed to persist user memory:', e && e.message ? e.message : e);
+      }
+    } catch (e) {
+      console.warn('[rag] NLP analysis failed:', e && e.message ? e.message : e);
+    }
     if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
     const EMBED_URL = process.env.EMBED_URL || 'http://embed:5001';
     const OLLAMA_URL = process.env.OLLAMA_URL || 'http://host.docker.internal:11434';
+
+    // Fetch recent memory for personalization
+    const recent = await getRecentConversation(id_user, 10);
+    const userContext = buildUserContext(recent);
 
     // 1) embed the query
     const embedResp = await postWithTimeout(`${EMBED_URL.replace(/\/$/, '')}/embed`, { model: process.env.EMBED_MODEL || 'all-mpnet-base-v2', input: [prompt] }, { timeoutMs: 15000 });
@@ -78,8 +114,24 @@ router.post('/', async (req, res) => {
 
     // 2) query qdrant for nearest
     const { QdrantClient } = await import('@qdrant/js-client-rest');
-    const qdrant = new QdrantClient({ url: process.env.QDRANT_URL || 'http://qdrant:6333' });
-    const searchRes = await qdrant.search({ collection_name: process.env.QDRANT_COLLECTION || 'documents', vector: qvec, limit: Number(top_k), with_payload: true });
+    const qdrant = new QdrantClient({ url: process.env.QDRANT_URL || 'http://qdrant:6333', checkCompatibility: false });
+    const collectionName = process.env.QDRANT_COLLECTION || 'documents';
+
+    let searchRes = null;
+    try {
+      searchRes = await qdrant.search(collectionName, { vector: qvec, limit: Number(top_k), with_payload: true });
+    } catch (e) {
+      // Try to detect vector size mismatch and return a helpful error
+      try {
+        const info = await qdrant.getCollection(collectionName);
+        const expected = (info && info.vectors_count) ? undefined : (info && info.config && info.config.params && info.config.params.vectors && info.config.params.vectors.size);
+        const got = Array.isArray(qvec) ? qvec.length : undefined;
+        if (got && expected && e && String(e).toLowerCase().includes('bad request')) {
+          return res.status(400).json({ error: 'Vector size mismatch between query and collection', expected, got, hint: 'Pastikan EMBED_MODEL sama dengan model saat ingestion, lalu jalankan ulang ingestion.' });
+        }
+      } catch (_) {}
+      throw e;
+    }
 
     // 3) build context and sources
     // Keep only a compact, bounded representation of hits to avoid returning very large
@@ -103,18 +155,18 @@ router.post('/', async (req, res) => {
     const baseUrl = process.env.PUBLIC_BASE_URL || '';
     for (const s of sources) { s.url = baseUrl ? `${baseUrl.replace(/\/$/, '')}/files/${s.filename}` : `/files/${s.filename}`; }
 
-    // 4) generation step
-    // If generation via Ollama (or external LLM) is disabled, synthesize a short answer directly
-    // from the Qdrant snippets to ensure the endpoint can be tested end-to-end without external LLMs.
+    // 4) generation step (with optional personalization context)
     const ENABLE_RAG_GEN = (process.env.ENABLE_RAG_GEN || 'false').toLowerCase() === 'true';
     let answer = '';
     if (ENABLE_RAG_GEN) {
       const systemPrompt = `You are an assistant that answers user questions using ONLY the provided contextual snippets. For each assertion, cite the source with filename and page number. If the answer is not in the snippets, say you don't know.`;
-      const userPrompt = `User: ${prompt}\n\nContext:\n${snippets.join('\n\n--\n\n')}\n\nProvide a concise answer and then list sources (filename, page).`;
+      const persona = userContext ? `\n\nUser context (recent messages):\n${userContext}` : '';
+      const userPrompt = `User: ${prompt}${persona}\n\nContext:\n${snippets.join('\n\n--\n\n')}\n\nProvide a concise answer and then list sources (filename, page).`;
 
-    const ollamaHeaders = { 'Content-Type': 'application/json' };
-    if (process.env.OLLAMA_API_KEY) ollamaHeaders['Authorization'] = `Bearer ${process.env.OLLAMA_API_KEY}`;
-    const genResp = await postWithTimeout(`${OLLAMA_URL.replace(/\/$/, '')}/generate`, { model: process.env.OLLAMA_MODEL || 'gemma3:4b', prompt: systemPrompt + '\n\n' + userPrompt, max_tokens: 512 }, { timeoutMs: 30000, retry: 1, headers: ollamaHeaders });
+      const OLLAMA_URL = process.env.OLLAMA_URL || 'http://host.docker.internal:11434';
+      const ollamaHeaders = { 'Content-Type': 'application/json' };
+      if (process.env.OLLAMA_API_KEY) ollamaHeaders['Authorization'] = `Bearer ${process.env.OLLAMA_API_KEY}`;
+      const genResp = await postWithTimeout(`${OLLAMA_URL.replace(/\/$/, '')}/generate`, { model: process.env.OLLAMA_MODEL || 'gemma3:4b', prompt: systemPrompt + '\n\n' + userPrompt, max_tokens: 512 }, { timeoutMs: 30000, retry: 1, headers: ollamaHeaders });
       if (!genResp.ok) {
         const txt = await genResp.text().catch(() => '<no-body>');
         throw new Error('LLM generate error: ' + txt);
@@ -141,8 +193,14 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Return compact hits instead of full searchRes to avoid huge responses
-    return res.json({ answer, sources, raw_hits: compactHits });
+    // persist bot answer text to memory with optional intent tag
+    try {
+      await pool.query('INSERT INTO conversation_memory (id_user, sender, message, intent, sentiment_score, sentiment_label) VALUES (?,?,?,?,?,?)', [id_user, 'bot', answer || '', 'answer', null, null]);
+    } catch (e) {
+      console.warn('[rag] failed to persist bot memory:', e && e.message ? e.message : e);
+    }
+
+    return res.json({ answer, sources, raw_hits: compactHits, metadata: analysis, context_messages: recent });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: String(err) });

@@ -51,9 +51,9 @@ const handleSend = (e) => {
                     return;
                 }
 
-                // Add answer message
+                // Add answer message (include optional metadata from server)
                 const answerText = body.answer || (body?.answer?.toString && body.answer.toString()) || JSON.stringify(body);
-                const botMsg = { id: Date.now()+2, sender: 'bot', text: answerText };
+                const botMsg = { id: Date.now()+2, sender: 'bot', text: answerText, metadata: body.metadata || null };
                 setMessages(prev => [...prev, botMsg]);
 
                 // Add sources as separate messages (small)
@@ -123,7 +123,16 @@ return (
             <div className="messages">
                 {filteredMessages.map(msg => (
                     <div key={msg.id} className={`msg ${msg.sender}`}>
-                        {msg.url ? <a href={msg.url} target="_blank" rel="noreferrer">{msg.text}</a> : msg.text}
+                        <div>
+                            {msg.url ? <a href={msg.url} target="_blank" rel="noreferrer">{msg.text}</a> : msg.text}
+                        </div>
+                        {msg.metadata && (
+                            <div className="msg-meta" style={{ fontSize: '0.8em', color: '#666', marginTop: '6px' }}>
+                                Intent: <strong>{msg.metadata.intent}</strong>
+                                {' · '}
+                                Sentiment: <strong>{msg.metadata.sentiment.label}</strong> ({Number(msg.metadata.sentiment.score).toFixed(2)})
+                            </div>
+                        )}
                     </div>
                 ))}
             </div>
