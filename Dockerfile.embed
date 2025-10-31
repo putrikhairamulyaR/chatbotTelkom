@@ -1,0 +1,35 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# system deps (needed for some Python packages)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt ./
+
+RUN python -m pip install --upgrade pip
+
+# Try to install CPU-only PyTorch wheel first (use the official CPU index)
+# If this fails it will continue; we'll still try to install other deps below.
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu \
+    torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html || true
+
+# Install requirements without letting pip auto-resolve optional GPU deps
+RUN pip install --no-cache-dir -r requirements.txt --no-deps || true
+
+# Install sentence-transformers without deps (we'll install a controlled set of deps)
+RUN pip install --no-cache-dir sentence-transformers --no-deps || true
+
+# Install a small, explicit set of runtime deps known to be needed for MiniLM
+RUN pip install --no-cache-dir numpy transformers huggingface-hub safetensors tokenizers requests flask
+
+# Copy app
+COPY . /app
+
+EXPOSE 5001
+
+CMD ["python", "embed_service.py", "--host", "0.0.0.0", "--port", "5001"]

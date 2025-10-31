@@ -1,0 +1,21 @@
+{
+  "name": "loginpage-demo",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:all": "concurrently \"npm run dev\" \"npm start --prefix server\"",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^8.2.0",
+    "vite": "^5.0.0"
+  }
+}

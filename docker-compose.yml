@@ -1,0 +1,94 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: example
+      MYSQL_DATABASE: ai_chatbot
+    ports:
+      - '3307:3306'
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  qdrant:
+    image: qdrant/qdrant:v1.2.0
+    ports:
+      - '6333:6333'
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+  app:
+    build: .
+    depends_on:
+      - mysql
+      - qdrant
+    ports:
+      - '4000:4000'
+    environment:
+      # Increase Node.js heap to reduce 'heap out of memory' crashes during heavy processing
+      NODE_OPTIONS: "--max-old-space-size=4096"
+      # Ensure the app contacts the embed microservice inside the compose network
+      EMBED_URL: "http://embed:5001"
+      # Prefer the smaller MiniLM embedding model for faster startup
+      EMBED_MODEL: "sentence-transformers/all-MiniLM-L6-v2"
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASS: example
+      DB_NAME: ai_chatbot
+      ENABLE_RAG: "true"
+      ENABLE_RAG_GEN: "false"
+      OLLAMA_API_KEY: "2d299a4f4b0343cbb3b78aa30a6051e5.EIyqiZAL-Qj_MRhOQMb7nSuS"
+      QDRANT_URL: "http://qdrant:6333"
+      QDRANT_API_KEY: ''
+      OPENAI_API_KEY: ''
+
+  ingest:
+    build: .
+    depends_on:
+      - qdrant
+    environment:
+      USE_OLLAMA: "true"
+      OLLAMA_URL: "http://host.docker.internal:11434"
+      OLLAMA_MODEL: "all-mpnet-base-v2"
+      OLLAMA_API_KEY: "2d299a4f4b0343cbb3b78aa30a6051e5.EIyqiZAL-Qj_MRhOQMb7nSuS"
+      QDRANT_URL: http://qdrant:6333
+    volumes:
+      - ./data:/app/data
+    working_dir: /app/server
+    command: ["npm", "run", "ingest"]
+
+  embed:
+    build:
+      context: .
+      dockerfile: Dockerfile.embed.cpu
+    depends_on:
+      - qdrant
+    environment:
+      # Use local sentence-transformers embeddings by default
+      EMBED_MODE: "local"
+      # Force local embeddings to avoid accidental forwarding to host endpoints
+      FORCE_LOCAL_EMBED: "true"
+      OLLAMA_URL: "http://host.docker.internal:11434"
+      OLLAMA_MODEL: "all-mpnet-base-v2"
+      LOCAL_MODEL: "sentence-transformers/all-MiniLM-L6-v2"
+    volumes:
+      - ./:/app
+    working_dir: /app
+    ports:
+      - '5001:5001'
+    # Upgrade pip and install Python-only requirements (torch provided by base image)
+    command: >
+      sh -c "pip install --upgrade pip && \
+      pip install -r requirements.txt --no-deps && \
+      pip install sentence-transformers --no-deps && \
+      python embed_service.py --host 0.0.0.0 --port 5001"
+
+volumes:
+  mysql-data:
+  qdrant-data:
+
+networks:
+  default:
+    external:
+      name: my-predefined-network
