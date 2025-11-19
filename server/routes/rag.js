@@ -6,6 +6,28 @@ import nlp from '../utils/nlp.js';
 
 const router = express.Router();
 
+// Minimum similarity score (Cosine) considered "reliable" for answering
+const MIN_CONFIDENCE = Number(process.env.RAG_MIN_SCORE || '0.4');
+const NO_DATA_MESSAGE = 'Untuk saat ini kami belum bisa memproses pertanyaan Anda, silakan ajukan pertanyaan ulang.';
+
+const RULE_KEYWORDS = ['aturan', 'peraturan', 'pasal', 'ketentuan', 'policy', 'rule', 'tatib'];
+const KP_KEYWORDS = ['kp', 'kerja praktek', 'kerja praktik', 'magang'];
+const RULE_FILENAME = process.env.RULE_FILENAME || 'aturan.pdf';
+const KP_FILENAME = process.env.KP_FILENAME || 'KP.pdf';
+
+function buildFilenameFilter(prompt) {
+  const text = (prompt || '').toLowerCase();
+  if (!text) return null;
+  const matches = (keywords) => keywords.some(k => text.includes(k));
+  if (matches(RULE_KEYWORDS)) {
+    return { must: [{ key: 'filename', match: { value: RULE_FILENAME } }] };
+  }
+  if (matches(KP_KEYWORDS)) {
+    return { must: [{ key: 'filename', match: { value: KP_FILENAME } }] };
+  }
+  return null;
+}
+
 // Helper: POST with timeout and basic retries (1 retry)
 async function postWithTimeout(url, body, opts = {}) {
   const controller = new AbortController();
@@ -117,9 +139,12 @@ router.post('/', async (req, res) => {
     const qdrant = new QdrantClient({ url: process.env.QDRANT_URL || 'http://qdrant:6333', checkCompatibility: false });
     const collectionName = process.env.QDRANT_COLLECTION || 'documents';
 
+    const qdrantFilter = buildFilenameFilter(prompt);
     let searchRes = null;
     try {
-      searchRes = await qdrant.search(collectionName, { vector: qvec, limit: Number(top_k), with_payload: true });
+      const searchPayload = { vector: qvec, limit: Number(top_k), with_payload: true };
+      if (qdrantFilter) searchPayload.filter = qdrantFilter;
+      searchRes = await qdrant.search(collectionName, searchPayload);
     } catch (e) {
       // Try to detect vector size mismatch and return a helpful error
       try {
@@ -133,14 +158,28 @@ router.post('/', async (req, res) => {
       throw e;
     }
 
-    // 3) build context and sources
+    // 3) filter hits by confidence so we only answer when PDF data is clearly relevant
+    const confidentHits = (searchRes || []).filter(hit => {
+      if (!hit || typeof hit.score !== 'number') return false;
+      return hit.score >= MIN_CONFIDENCE;
+    });
+    if (!confidentHits.length) {
+      try {
+        await pool.query('INSERT INTO conversation_memory (id_user, sender, message, intent, sentiment_score, sentiment_label) VALUES (?,?,?,?,?,?)', [id_user, 'bot', NO_DATA_MESSAGE, 'no_data', null, null]);
+      } catch (e) {
+        console.warn('[rag] failed to persist fallback memory:', e && e.message ? e.message : e);
+      }
+      return res.json({ answer: NO_DATA_MESSAGE, sources: [], raw_hits: [], metadata: analysis, context_messages: recent });
+    }
+
+    // 4) build context and sources using confident hits only
     // Keep only a compact, bounded representation of hits to avoid returning very large
     // payloads (Qdrant payloads may contain full document text which can OOM when
     // stringified). We still build short snippets for context but cap their length.
     const snippets = [];
     const sources = [];
     const compactHits = [];
-    for (const hit of searchRes) {
+    for (const hit of confidentHits) {
       const payload = hit.payload || {};
       // create a bounded snippet (max 800 chars)
       const snippet = String(payload.snippet || payload.text || '').slice(0, 800);
@@ -155,11 +194,11 @@ router.post('/', async (req, res) => {
     const baseUrl = process.env.PUBLIC_BASE_URL || '';
     for (const s of sources) { s.url = baseUrl ? `${baseUrl.replace(/\/$/, '')}/files/${s.filename}` : `/files/${s.filename}`; }
 
-    // 4) generation step (with optional personalization context)
+    // 5) generation step (with optional personalization context)
     const ENABLE_RAG_GEN = (process.env.ENABLE_RAG_GEN || 'false').toLowerCase() === 'true';
     let answer = '';
     if (ENABLE_RAG_GEN) {
-      const systemPrompt = `You are an assistant that answers user questions using ONLY the provided contextual snippets. For each assertion, cite the source with filename and page number. If the answer is not in the snippets, say you don't know.`;
+      const systemPrompt = `You are an empathetic Indonesian AI assistant. Answer conversationally like a helpful human, but use ONLY the provided contextual snippets. For each assertion, cite the source with filename and page number. If the answer is not in the snippets, say you don't know.`;
       const persona = userContext ? `\n\nUser context (recent messages):\n${userContext}` : '';
       const userPrompt = `User: ${prompt}${persona}\n\nContext:\n${snippets.join('\n\n--\n\n')}\n\nProvide a concise answer and then list sources (filename, page).`;
 
@@ -174,23 +213,19 @@ router.post('/', async (req, res) => {
       const genBody = await genResp.json().catch(() => null);
       answer = await extractTextFromOllamaResponse(genBody);
     } else {
-      // Fallback: produce a concise synthesized answer from the top snippets without calling an LLM.
-      if (snippets.length === 0) {
-        answer = "I'm sorry — I couldn't find any relevant documents.";
-      } else {
-        // Use the first 2 snippets to form a short answer and cite sources
-        const use = snippets.slice(0, Math.min(2, snippets.length));
-        // Heuristic: extract the first sentence from each snippet
-        const sentences = use.map(s => {
-          const txt = String(s).replace(/\n/g, ' ').trim();
-          const m = txt.match(/([^.?!]*[.?!])/);
-          return m ? m[0].trim() : (txt.slice(0, 200));
-        });
-        answer = sentences.join(' ');
-        // Append a short source list
-        const srcList = sources.slice(0, Math.min(3, sources.length)).map(s => `${s.filename}${s.page ? ' (p' + s.page + ')' : ''}`).join(', ');
-        answer = `${answer} \n\nSources: ${srcList}`;
-      }
+      // Fallback: produce a conversational answer from the top snippets without calling an LLM.
+      const use = snippets.slice(0, Math.min(2, snippets.length));
+      const sentences = use.map(s => {
+        const txt = String(s).replace(/\n/g, ' ').trim();
+        const m = txt.match(/([^.?!]*[.?!])/);
+        return m ? m[0].trim() : (txt.slice(0, 200));
+      });
+      const sentimentLabel = analysis && analysis.sentiment && analysis.sentiment.label;
+      const tonePrefix = sentimentLabel === 'negative'
+        ? 'Saya mengerti kekhawatiran Anda. '
+        : 'Saya menemukan informasi berikut. ';
+      const srcList = sources.slice(0, Math.min(3, sources.length)).map(s => `${s.filename}${s.page ? ' (hal. ' + s.page + ')' : ''}`).join(', ');
+      answer = `${tonePrefix}${sentences.join(' ')} Saya merujuk pada ${srcList}.`;
     }
 
     // persist bot answer text to memory with optional intent tag

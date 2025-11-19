@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import { OpenAI } from 'openai';
 import { QdrantClient } from '@qdrant/js-client-rest';
+import { randomUUID } from 'crypto';
 
 dotenv.config();
 
@@ -94,6 +95,16 @@ async function extractTextFile(filePath) {
 	if (ext === '.pdf') {
 		return { type: 'pdf', pages: await extractPdfPages(filePath) };
 	}
+	if (ext === '.docx') {
+		try {
+			const mammoth = await import('mammoth');
+			const { value } = await mammoth.extractRawText({ path: filePath });
+			return { type: 'docx', pages: [value.trim()] };
+		} catch (e) {
+			console.error('Failed to extract text from DOCX', filePath, e.message);
+			return { type: 'docx', pages: [''] };
+		}
+	}
 	const text = await fsPromises.readFile(filePath, 'utf8');
 	return { type: 'text', pages: [text] };
 }
@@ -138,7 +149,7 @@ async function run() {
 		}
 		const ext = path.extname(file).toLowerCase();
 		// only process common text-like files and pdfs
-		if (!['.pdf', '.txt', '.md', '.json', '.csv'].includes(ext)) {
+		if (!['.pdf', '.txt', '.md', '.json', '.csv','.docx'].includes(ext)) {
 			console.log('Skipping unsupported file', file);
 			continue;
 		}
@@ -152,7 +163,8 @@ async function run() {
 				for (let ci = 0; ci < chunks.length; ci++) {
 					const chunk = chunks[ci].trim();
 					if (!chunk) continue;
-					const id = `${path.basename(file)}::p${p + 1}::c${ci + 1}`;
+					/*const id = `${path.basename(file)}::p${p + 1}::c${ci + 1}`;*/
+					const id = randomUUID();
 					const payload = {
 						filename: path.basename(file),
 						filepath: path.relative(process.cwd(), file),
@@ -235,7 +247,7 @@ async function run() {
 		}
 
 		const upsertPoints = batch.map(p => ({ id: p.id, vector: p.vector, payload: p.payload }));
-		await qdrant.upsert({ collection_name: COLLECTION, points: upsertPoints });
+		await qdrant.upsert(COLLECTION, { points: upsertPoints, wait: true });
 		console.log(`Upserted ${upsertPoints.length} points to Qdrant`);
 		// small delay between batches to be nice to APIs (optional)
 		await new Promise(r => setTimeout(r, 200));
