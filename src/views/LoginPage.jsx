@@ -1,62 +1,76 @@
-import React, { useState } from 'react';
-import './LoginPage.css';
-import bg from './image/bg.webp';
+import React, { useState } from "react";
+import "./LoginPage.css";
+import bg from "./image/bg.webp";
 
 export default function LoginPage({ onSubmit }) {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
 
-  function validate(u = username, p = password) {
-    if (!u) return 'Username wajib diisi';
-    if (!p) return 'Password wajib diisi';
-    return '';
+  function validate() {
+    if (!username) return "Username wajib diisi";
+    if (!password) return "Password wajib diisi";
+    return "";
   }
 
   function handleSubmit(e) {
     e.preventDefault();
-    // trim inputs to avoid accidental whitespace causing auth failure
-    const trimmedUsername = username ? username.trim() : '';
-    const trimmedPassword = password ? password.trim() : '';
-    const v = validate(trimmedUsername, trimmedPassword);
+    const v = validate();
     if (v) {
-      // show validation message and DO NOT submit to server
       setError(v);
       return;
     }
-
-    setError('');
-    // submit trimmed credentials
-    if (onSubmit) onSubmit({ username: trimmedUsername, password: trimmedPassword });
-    else console.log('login', { username: trimmedUsername, password: trimmedPassword });
+    setError("");
+    if (onSubmit) onSubmit({ username, password });
   }
 
   return (
-    <div className="login-page" style={{ backgroundImage: `url(${bg})` }}>
-      <div className="login-card">
-        <h2>Masuk</h2>
-        {error && <div className="error">{error}</div>}
-        <form onSubmit={handleSubmit}>
-          <label>
-            Username
+    <div className="layout">
+      {/* Left Section */}
+      <div className="left-section" style={{ backgroundImage: `url(${bg})` }}>
+        <div className="overlay"></div>
+        <div className="left-content">
+          <h1 className="title-main">Selamat Datang di</h1>
+          <h2 className="title-app">Chatbot</h2>
+          <p className="subtitle">Sistem Chatbot FTI Telkom University</p>
+        </div>
+      </div>
+
+      {/* Right Section */}
+      <div className="right-section">
+        <div className="login-box">
+          <h3 className="login-title">Login</h3>
+
+          {error && <div className="error">{error}</div>}
+
+          <form onSubmit={handleSubmit}>
+            <label>Username</label>
             <input
               type="text"
+              placeholder="Masukkan username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="username"
             />
-          </label>
-          <label>
-            Password
+
+            <label>Password</label>
             <input
               type="password"
+              placeholder="Masukkan password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="******"
             />
-          </label>
-          <button type="submit" className="btn">Masuk</button>
-        </form>
+
+            <button type="submit" className="btn-login">
+              Login
+            </button>
+          </form>
+
+          <div className="login-info">
+            <p>Kontak bantuan:</p>
+            <a href="#" className="help-btn">Helpdesk</a>
+            <br />
+          </div>
+        </div>
       </div>
     </div>
   );
