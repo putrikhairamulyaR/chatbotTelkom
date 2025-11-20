@@ -1,3 +1,4 @@
+// server/rag.js
 import express from 'express';
 import fetch from 'node-fetch';
 import path from 'path';
@@ -6,44 +7,22 @@ import nlp from '../utils/nlp.js';
 
 const router = express.Router();
 
-// Minimum similarity score (Cosine) considered "reliable" for answering
-const MIN_CONFIDENCE = Number(process.env.RAG_MIN_SCORE || '0.4');
-const NO_DATA_MESSAGE = 'Untuk saat ini kami belum bisa memproses pertanyaan Anda, silakan ajukan pertanyaan ulang.';
-
-const RULE_KEYWORDS = ['aturan', 'peraturan', 'pasal', 'ketentuan', 'policy', 'rule', 'tatib'];
-const KP_KEYWORDS = ['kp', 'kerja praktek', 'kerja praktik', 'magang'];
-const RULE_FILENAME = process.env.RULE_FILENAME || 'aturan.pdf';
-const KP_FILENAME = process.env.KP_FILENAME || 'KP.pdf';
-
-function buildFilenameFilter(prompt) {
-  const text = (prompt || '').toLowerCase();
-  if (!text) return null;
-  const matches = (keywords) => keywords.some(k => text.includes(k));
-  if (matches(RULE_KEYWORDS)) {
-    return { must: [{ key: 'filename', match: { value: RULE_FILENAME } }] };
-  }
-  if (matches(KP_KEYWORDS)) {
-    return { must: [{ key: 'filename', match: { value: KP_FILENAME } }] };
-  }
-  return null;
-}
-
-// Helper: POST with timeout and basic retries (1 retry)
+// ---------- Helpers: POST with timeout + retry ----------
 async function postWithTimeout(url, body, opts = {}) {
-  const controller = new AbortController();
   const timeoutMs = opts.timeoutMs || 15000;
-  const retry = opts.retry || 1;
+  const retry = typeof opts.retry === 'number' ? opts.retry : 1;
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
 
   const doPost = async () => {
+    const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
       const resp = await fetch(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
       clearTimeout(id);
       return resp;
     } catch (err) {
@@ -56,25 +35,50 @@ async function postWithTimeout(url, body, opts = {}) {
     return await doPost();
   } catch (err) {
     if (retry > 0) {
-      return await postWithTimeout(url, body, { timeoutMs, retry: retry - 1 });
+      return await postWithTimeout(url, body, { timeoutMs, retry: retry - 1, headers });
     }
     throw err;
   }
 }
 
-// Normalize Ollama-like responses into text string
+// Call Ollama endpoints with candidate paths and IPv6/IPv4 fallback
+async function postOllamaWithFallback(pathSuffix, body, opts = {}) {
+  const rawBase = (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '');
+  const baseCandidates = [rawBase];
+  // If host.docker.internal is used in some envs, include it as alternative
+  if (!rawBase.includes('host.docker.internal')) baseCandidates.push(rawBase.replace('127.0.0.1', 'host.docker.internal'));
+  let lastErr = null;
+  for (const base of baseCandidates) {
+    const clean = pathSuffix.replace(/^\/+/, '');
+    const candidates = [`${base}/api/${clean}`, `${base}/${clean}`];
+    for (const url of candidates) {
+      try {
+        return await postWithTimeout(url, body, opts);
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+  }
+  if (lastErr) throw lastErr;
+  throw new Error('Failed to contact Ollama endpoint');
+}
+
+// Normalize different Ollama/OpenAI response shapes into plain text
 async function extractTextFromOllamaResponse(resp) {
-  // resp is the parsed JSON body
   if (!resp) return '';
   if (typeof resp === 'string') return resp;
-  if (resp.output && typeof resp.output === 'string') return resp.output;
-  if (resp.text && typeof resp.text === 'string') return resp.text;
-  if (Array.isArray(resp.results) && resp.results[0] && resp.results[0].content) return resp.results[0].content;
-  if (Array.isArray(resp.choices) && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) return resp.choices[0].message.content;
-  // fallback to JSON string
+  if (typeof resp.output === 'string') return resp.output;
+  if (typeof resp.text === 'string') return resp.text;
+  if (Array.isArray(resp.results) && resp.results[0] && (resp.results[0].content || resp.results[0].text)) {
+    return resp.results[0].content || resp.results[0].text || '';
+  }
+  if (Array.isArray(resp.choices) && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) {
+    return resp.choices[0].message.content;
+  }
   try { return JSON.stringify(resp); } catch { return String(resp); }
 }
 
+// Recent conversation memory
 async function getRecentConversation(id_user, limit = 10) {
   if (!id_user) return [];
   try {
@@ -84,26 +88,44 @@ async function getRecentConversation(id_user, limit = 10) {
     return [];
   }
 }
-
 function buildUserContext(messages) {
   if (!messages || !messages.length) return '';
   const last = messages.slice(-5).map(m => `${m.sender}: ${m.message}`).join('\n');
   return `Recent conversation:\n${last}`;
 }
 
+// Small talk/greeting detection (simple heuristics)
+function isSmallTalk(prompt) {
+  if (!prompt) return false;
+  const p = prompt.toLowerCase().trim();
+  const greetings = ['hai', 'halo', 'hi', 'hey', 'helo'];
+  if (p === '__init__') return true;
+  if (greetings.includes(p) || greetings.some(g => p.startsWith(g + ' ') || p === g)) return true;
+  const small = ['apa', 'ngapain', 'lagi apa', 'kamu siapa', 'siapa kamu', 'perkenalan', 'hello'];
+  if (small.includes(p)) return true;
+  return false;
+}
+function smallTalkReply(prompt) {
+  const p = (prompt || '').toLowerCase().trim();
+  if (p === '__init__') return "Halo 👋 Aku asisten AI kamu. Mau coba tanya sesuatu atau upload dokumen untuk dicari jawabannya.";
+  if (p.includes('kamu siapa')) return "Aku asisten AI yang bisa bantu jawab pertanyaan berdasarkan dokumen yang di-upload. 😊";
+  if (p === 'apa' || p === 'ngapain' || p === 'lagi apa') return "Aku lagi siap bantu! Mau cari info apa?";
+  if (['hai','halo','hi','hey','helo'].includes(p)) return "Hai! 👋 Ada yang bisa aku bantu?";
+  return "Hai! Aku di sini siap bantu kamu. Mau tanya apa?";
+}
+
+// Main route
 router.post('/', async (req, res) => {
   try {
-    // Safety: disable RAG by default unless ENABLE_RAG=true is explicitly set in env.
-    // This avoids accidental heavy work when environment variables aren't set or during debugging.
+    // Env flags
     const ENABLE_RAG = (process.env.ENABLE_RAG || 'false').toLowerCase() === 'true';
-    console.log('[rag] ENABLE_RAG=', ENABLE_RAG);
-    if (!ENABLE_RAG) {
-      return res.status(503).json({ error: 'RAG disabled (set ENABLE_RAG=true to enable)' });
-    }
+    const ENABLE_RAG_GEN = (process.env.ENABLE_RAG_GEN || 'false').toLowerCase() === 'true';
+
+    // Basic payload
     const { prompt, top_k = 5, id_user: rawIdUser } = req.body || {};
     const id_user = rawIdUser ? Number(rawIdUser) : null;
 
-    // analyze and persist the incoming prompt (intent + sentiment)
+    // Persist the incoming message intent/sentiment if possible
     let analysis = null;
     try {
       analysis = await nlp.analyzeMessage(prompt || '');
@@ -113,131 +135,330 @@ router.post('/', async (req, res) => {
         console.warn('[rag] failed to persist user memory:', e && e.message ? e.message : e);
       }
     } catch (e) {
-      console.warn('[rag] NLP analysis failed:', e && e.message ? e.message : e);
+      // ignore NLP failures
     }
+
     if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
-    const EMBED_URL = process.env.EMBED_URL || 'http://embed:5001';
-    const OLLAMA_URL = process.env.OLLAMA_URL || 'http://host.docker.internal:11434';
+    // QUICK SMALL TALK HANDLING (bypass embedding + RAG)
+    // Only bypass for very short greetings, not for actual questions
+    const isVeryShortGreeting = prompt.trim().length <= 10 && isSmallTalk(prompt);
+    if (isVeryShortGreeting) {
+      const reply = smallTalkReply(prompt);
+      // persist bot reply
+      try {
+        await pool.query('INSERT INTO conversation_memory (id_user, sender, message, intent, sentiment_score, sentiment_label) VALUES (?,?,?,?,?,?)', [id_user, 'bot', reply || '', 'smalltalk', null, null]);
+      } catch (e) { /* ignore */ }
+      return res.json({ answer: reply, sources: [], raw_hits: [], metadata: analysis, context_messages: await getRecentConversation(id_user, 10) });
+    }
+    
+    // Query expansion: improve search by adding synonyms/related terms
+    // This makes the search smarter, not just literal word matching
+    function expandQuery(query) {
+      if (!query || query.trim().length === 0) return query;
+      const q = query.toLowerCase().trim();
+      const expansions = {
+        'mau': ['ingin', 'perlu', 'butuh', 'memerlukan', 'menginginkan'],
+        'cara': ['bagaimana', 'metode', 'langkah', 'prosedur', 'tata cara'],
+        'apa': ['apa itu', 'definisi', 'pengertian', 'jelaskan'],
+        'kapan': ['waktu', 'jadwal', 'periode', 'tanggal'],
+        'dimana': ['lokasi', 'tempat', 'posisi'],
+        'siapa': ['siapakah', 'pihak', 'orang'],
+        'berapa': ['jumlah', 'nominal', 'kuantitas'],
+        'kewajiban': ['wajib', 'harus', 'mesti', 'perlu dilakukan', 'tanggung jawab'],
+        'aturan': ['peraturan', 'ketentuan', 'regulasi', 'prosedur', 'kebijakan'],
+        'mahasiswa': ['siswa', 'pelajar', 'student'],
+      };
+      
+      // Find matching expansion
+      for (const [key, synonyms] of Object.entries(expansions)) {
+        if (q.includes(key)) {
+          // Add synonyms to query for better semantic search
+          return `${query} ${synonyms.join(' ')}`;
+        }
+      }
+      return query;
+    }
+    
+    const expandedPrompt = expandQuery(prompt) || prompt;
 
-    // Fetch recent memory for personalization
+    // Basic config
+    const EMBED_URL = (process.env.EMBED_URL || process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '');
+    const EMBED_MODEL = process.env.EMBED_MODEL || process.env.OLLAMA_MODEL || 'nomic-embed-text';
+    const OLLAMA_URL = (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '');
+    const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'gemma3:4b';
+    const QDRANT_URL = process.env.QDRANT_URL || 'http://127.0.0.1:6333';
+    const COLLECTION = process.env.QDRANT_COLLECTION || 'documents';
+
+    // Get recent conversation (for personalization)
     const recent = await getRecentConversation(id_user, 10);
     const userContext = buildUserContext(recent);
 
-    // 1) embed the query
-    const embedResp = await postWithTimeout(`${EMBED_URL.replace(/\/$/, '')}/embed`, { model: process.env.EMBED_MODEL || 'all-mpnet-base-v2', input: [prompt] }, { timeoutMs: 15000 });
-    if (!embedResp.ok) {
-      const txt = await embedResp.text().catch(() => '<no-body>');
-      throw new Error('Embed service error: ' + txt);
+    // If RAG disabled, return friendly fallback or run minimal heuristic
+    if (!ENABLE_RAG) {
+      // simple conversational fallback (no embedding)
+      const fallback = "RAG is disabled on this server. If you'd like to enable retrieval from documents, set ENABLE_RAG=true in your .env and restart.";
+      return res.json({ answer: fallback, sources: [], raw_hits: [], metadata: analysis, context_messages: recent });
     }
-    const embedBody = await embedResp.json();
-    const qvec = (embedBody.embeddings && embedBody.embeddings[0]) || (embedBody.data && embedBody.data[0] && embedBody.data[0].embedding);
-    if (!qvec) throw new Error('No embedding returned');
 
-    // 2) query qdrant for nearest
-    const { QdrantClient } = await import('@qdrant/js-client-rest');
-    const qdrant = new QdrantClient({ url: process.env.QDRANT_URL || 'http://qdrant:6333', checkCompatibility: false });
-    const collectionName = process.env.QDRANT_COLLECTION || 'documents';
-
-    const qdrantFilter = buildFilenameFilter(prompt);
-    let searchRes = null;
+    // 1) Create embedding for query (use expanded prompt for better semantic search)
+    let embedResp;
     try {
-      const searchPayload = { vector: qvec, limit: Number(top_k), with_payload: true };
-      if (qdrantFilter) searchPayload.filter = qdrantFilter;
-      searchRes = await qdrant.search(collectionName, searchPayload);
-    } catch (e) {
-      // Try to detect vector size mismatch and return a helpful error
-      try {
-        const info = await qdrant.getCollection(collectionName);
-        const expected = (info && info.vectors_count) ? undefined : (info && info.config && info.config.params && info.config.params.vectors && info.config.params.vectors.size);
-        const got = Array.isArray(qvec) ? qvec.length : undefined;
-        if (got && expected && e && String(e).toLowerCase().includes('bad request')) {
-          return res.status(400).json({ error: 'Vector size mismatch between query and collection', expected, got, hint: 'Pastikan EMBED_MODEL sama dengan model saat ingestion, lalu jalankan ulang ingestion.' });
+      // Use expanded prompt for better semantic matching
+      const queryForEmbedding = expandedPrompt || prompt;
+      // call candidate embed endpoints
+      const embedCandidates = [`${EMBED_URL}/api/embed`, `${EMBED_URL}/embed`];
+      let lastErr = null;
+      let resp = null;
+      for (const url of embedCandidates) {
+        try {
+          resp = await postWithTimeout(url, { model: EMBED_MODEL, input: [queryForEmbedding] }, { timeoutMs: 20000, retry: 1 });
+          if (resp && resp.ok) { embedResp = await resp.json(); break; }
+          // if not ok, read body and throw to try next
+          const txt = resp ? await resp.text().catch(()=>'<no-body>') : '<no-resp>';
+          lastErr = new Error(`Embed failed: ${txt}`);
+        } catch (err) {
+          lastErr = err;
         }
-      } catch (_) {}
-      throw e;
-    }
-
-    // 3) filter hits by confidence so we only answer when PDF data is clearly relevant
-    const confidentHits = (searchRes || []).filter(hit => {
-      if (!hit || typeof hit.score !== 'number') return false;
-      return hit.score >= MIN_CONFIDENCE;
-    });
-    if (!confidentHits.length) {
-      try {
-        await pool.query('INSERT INTO conversation_memory (id_user, sender, message, intent, sentiment_score, sentiment_label) VALUES (?,?,?,?,?,?)', [id_user, 'bot', NO_DATA_MESSAGE, 'no_data', null, null]);
-      } catch (e) {
-        console.warn('[rag] failed to persist fallback memory:', e && e.message ? e.message : e);
       }
-      return res.json({ answer: NO_DATA_MESSAGE, sources: [], raw_hits: [], metadata: analysis, context_messages: recent });
+      if (!embedResp) throw lastErr || new Error('Embedding service not reachable');
+    } catch (e) {
+      console.error('[rag] embedding error', e && e.message ? e.message : e);
+      return res.status(500).json({ error: 'Failed to create embedding: ' + String(e) });
     }
 
-    // 4) build context and sources using confident hits only
-    // Keep only a compact, bounded representation of hits to avoid returning very large
-    // payloads (Qdrant payloads may contain full document text which can OOM when
-    // stringified). We still build short snippets for context but cap their length.
+    const qvec = (embedResp.embeddings && embedResp.embeddings[0]) || (embedResp.data && embedResp.data[0] && embedResp.data[0].embedding);
+    if (!qvec) return res.status(500).json({ error: 'No embedding returned from embed service' });
+
+    // 2) Query Qdrant with increased limit for better results, then re-rank
+    let searchRes;
+    try {
+      const qdrantModule = await import('@qdrant/js-client-rest');
+      const QdrantClient = qdrantModule.QdrantClient || qdrantModule.default?.QdrantClient || qdrantModule.default;
+      if (!QdrantClient) {
+        throw new Error('QdrantClient not found in @qdrant/js-client-rest module');
+      }
+      const qdrant = new QdrantClient({ url: QDRANT_URL, checkCompatibility: false });
+      // Get more results initially, then we'll re-rank based on relevance
+      const initialLimit = Math.max(Number(top_k || 5) * 2, 10);
+      searchRes = await qdrant.search(COLLECTION, { vector: qvec, limit: initialLimit, with_payload: true });
+      
+      // Smart re-ranking: prioritize relevant results and filter out irrelevant ones
+      const queryKeywords = prompt.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const queryLower = prompt.toLowerCase();
+      
+      if (searchRes && searchRes.length > 0) {
+        searchRes = searchRes.map(hit => {
+          const payload = hit.payload || {};
+          const text = (payload.snippet || payload.text || '').toLowerCase();
+          const filename = (payload.filename || '').toLowerCase();
+          let rerankedScore = hit.score || 0;
+          
+          // Calculate keyword relevance
+          let keywordMatches = 0;
+          let exactPhraseMatches = 0;
+          
+          // Check for exact phrase matches (higher weight)
+          if (queryLower.length > 5) {
+            const phrases = queryLower.split(/\s+/).filter(p => p.length > 3);
+            for (const phrase of phrases) {
+              if (text.includes(phrase)) {
+                exactPhraseMatches++;
+                rerankedScore += 0.15; // Higher boost for phrase match
+              }
+            }
+          }
+          
+          // Check for individual keyword matches
+          for (const keyword of queryKeywords) {
+            if (text.includes(keyword)) {
+              keywordMatches++;
+              rerankedScore += 0.05; // Smaller boost for individual keyword
+            }
+          }
+          
+          // Penalize results with irrelevant keywords (e.g., "kerja praktik" when query is about "kewajiban")
+          const irrelevantTerms = {
+            'kewajiban': ['kerja praktik', 'praktik kerja', 'kp'],
+            'aturan': ['kerja praktik', 'praktik kerja', 'kp'],
+          };
+          
+          for (const [queryTerm, irrelevant] of Object.entries(irrelevantTerms)) {
+            if (queryLower.includes(queryTerm)) {
+              for (const term of irrelevant) {
+                if (text.includes(term) && !text.includes(queryTerm)) {
+                  rerankedScore -= 0.2; // Penalty for irrelevant terms
+                }
+              }
+            }
+          }
+          
+          // Boost results from relevant filenames
+          if (queryLower.includes('kewajiban') || queryLower.includes('aturan')) {
+            if (filename.includes('aturan') || filename.includes('peraturan')) {
+              rerankedScore += 0.3; // Strong boost for aturan.pdf
+            }
+            if (filename.includes('kp') && !queryLower.includes('kerja praktik')) {
+              rerankedScore -= 0.2; // Penalty for KP.pdf when query is about aturan
+            }
+          }
+          
+          // Calculate relevance ratio
+          const relevanceRatio = keywordMatches / Math.max(queryKeywords.length, 1);
+          
+          return { 
+            ...hit, 
+            reranked_score: rerankedScore,
+            keyword_matches: keywordMatches,
+            exact_phrase_matches: exactPhraseMatches,
+            relevance_ratio: relevanceRatio
+          };
+        })
+        .filter(hit => {
+          // Filter out results with very low relevance
+          const minScore = 0.3; // Minimum similarity score threshold
+          const minRelevanceRatio = 0.2; // At least 20% of keywords should match
+          
+          if ((hit.reranked_score || hit.score || 0) < minScore) {
+            return false;
+          }
+          
+          // If result has very few keyword matches, require higher base score
+          if (hit.keyword_matches < 2 && (hit.score || 0) < 0.5) {
+            return false;
+          }
+          
+          return true;
+        })
+        .sort((a, b) => {
+          // Sort by reranked score, then by exact phrase matches, then by keyword matches
+          const scoreDiff = (b.reranked_score || b.score || 0) - (a.reranked_score || a.score || 0);
+          if (Math.abs(scoreDiff) > 0.01) return scoreDiff;
+          
+          const phraseDiff = (b.exact_phrase_matches || 0) - (a.exact_phrase_matches || 0);
+          if (phraseDiff !== 0) return phraseDiff;
+          
+          return (b.keyword_matches || 0) - (a.keyword_matches || 0);
+        });
+        
+        // Take top_k after re-ranking and filtering
+        searchRes = searchRes.slice(0, Number(top_k || 5));
+        
+        // Log for debugging
+        if (searchRes.length > 0) {
+          console.log(`[rag] Re-ranked ${searchRes.length} results. Top score: ${searchRes[0].reranked_score?.toFixed(3)} (${searchRes[0].payload?.filename})`);
+        }
+      }
+    } catch (e) {
+      console.error('[rag] qdrant search error', e && e.message ? e.message : e);
+      return res.status(500).json({ error: 'Failed to query Qdrant: ' + String(e) });
+    }
+
+    // 3) Build snippets & sources (bounded sizes)
+    // Only use results that meet minimum relevance threshold
+    const MIN_RELEVANCE_SCORE = 0.35; // Minimum score to be considered relevant
+    const relevantHits = (searchRes || []).filter(hit => {
+      const score = hit.reranked_score || hit.score || 0;
+      return score >= MIN_RELEVANCE_SCORE;
+    });
+    
+    // If no relevant results, return helpful message instead of random results
+    if (relevantHits.length === 0) {
+      console.log(`[rag] No relevant results found (min score: ${MIN_RELEVANCE_SCORE})`);
+      return res.json({ 
+        answer: "Maaf, saya tidak menemukan informasi yang relevan dalam dokumen untuk pertanyaan Anda. Silakan coba dengan kata kunci yang lebih spesifik atau pastikan dokumen yang relevan sudah di-upload.",
+        sources: [], 
+        raw_hits: [], 
+        metadata: analysis, 
+        context_messages: recent 
+      });
+    }
+    
     const snippets = [];
     const sources = [];
     const compactHits = [];
-    for (const hit of confidentHits) {
+    const seenSnippets = new Set();
+    for (const hit of relevantHits) {
       const payload = hit.payload || {};
-      // create a bounded snippet (max 800 chars)
-      const snippet = String(payload.snippet || payload.text || '').slice(0, 800);
+      const rawSnippet = String(payload.snippet || payload.text || '').replace(/\s+/g, ' ').trim();
+      const snippet = rawSnippet.slice(0, 800);
       const filename = payload.filename || path.basename(payload.filepath || '');
       const page = payload.page || payload.page_number || null;
-      snippets.push(`Source: ${filename} (page ${page})\n${snippet}`);
-      sources.push({ filename, filepath: payload.filepath || `data/${filename}`, page, score: hit.score, snippet });
-      compactHits.push({ id: hit.id, score: hit.score, filename, page, snippet });
+      const finalScore = hit.reranked_score || hit.score || 0;
+      const dedupKey = `${filename}|${page || '?'}|${snippet}`;
+      if (seenSnippets.has(dedupKey)) {
+        continue;
+      }
+      seenSnippets.add(dedupKey);
+      snippets.push(`Source: ${filename} (page ${page || '?'})\n${snippet}`);
+      sources.push({ filename, filepath: payload.filepath || `data/${filename}`, page, score: finalScore, snippet });
+      compactHits.push({ id: hit.id, score: finalScore, filename, page, snippet });
     }
 
-    // attach URL path (optionally make absolute using PUBLIC_BASE_URL)
-    const baseUrl = process.env.PUBLIC_BASE_URL || '';
-    for (const s of sources) { s.url = baseUrl ? `${baseUrl.replace(/\/$/, '')}/files/${s.filename}` : `/files/${s.filename}`; }
-
-    // 5) generation step (with optional personalization context)
-    const ENABLE_RAG_GEN = (process.env.ENABLE_RAG_GEN || 'false').toLowerCase() === 'true';
+    // 4) Generation: if ENABLE_RAG_GEN true -> call LLM (Ollama), else do heuristic merge
     let answer = '';
     if (ENABLE_RAG_GEN) {
-      const systemPrompt = `You are an empathetic Indonesian AI assistant. Answer conversationally like a helpful human, but use ONLY the provided contextual snippets. For each assertion, cite the source with filename and page number. If the answer is not in the snippets, say you don't know.`;
-      const persona = userContext ? `\n\nUser context (recent messages):\n${userContext}` : '';
-      const userPrompt = `User: ${prompt}${persona}\n\nContext:\n${snippets.join('\n\n--\n\n')}\n\nProvide a concise answer and then list sources (filename, page).`;
+      try {
+        const systemPrompt = `You are a helpful, friendly assistant. Answer the user's question using ONLY the provided context snippets. For every factual claim, cite the source filename and page number. If the answer is not contained in the snippets, reply: "Maaf, saya tidak menemukan jawaban dalam dokumen." Keep answer concise (max ~300 words).`;
+        const persona = userContext ? `\n\nUser context:\n${userContext}` : '';
+        const userPrompt = `User: ${prompt}${persona}\n\nContext:\n${snippets.join('\n\n--\n\n')}\n\nProvide a concise answer and then list sources (filename, page).`;
 
-      const OLLAMA_URL = process.env.OLLAMA_URL || 'http://host.docker.internal:11434';
-      const ollamaHeaders = { 'Content-Type': 'application/json' };
-      if (process.env.OLLAMA_API_KEY) ollamaHeaders['Authorization'] = `Bearer ${process.env.OLLAMA_API_KEY}`;
-      const genResp = await postWithTimeout(`${OLLAMA_URL.replace(/\/$/, '')}/generate`, { model: process.env.OLLAMA_MODEL || 'gemma3:4b', prompt: systemPrompt + '\n\n' + userPrompt, max_tokens: 512 }, { timeoutMs: 30000, retry: 1, headers: ollamaHeaders });
-      if (!genResp.ok) {
-        const txt = await genResp.text().catch(() => '<no-body>');
-        throw new Error('LLM generate error: ' + txt);
+        const body = {
+          model: OLLAMA_MODEL,
+          prompt: systemPrompt + '\n\n' + userPrompt,
+          max_tokens: 512,
+          temperature: 0.0
+        };
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (process.env.OLLAMA_API_KEY) headers['Authorization'] = `Bearer ${process.env.OLLAMA_API_KEY}`;
+
+        const genResp = await postOllamaWithFallback('generate', body, { timeoutMs: 30000, retry: 1, headers });
+        if (!genResp.ok) {
+          const txt = await genResp.text().catch(()=>'<no-body>');
+          throw new Error('LLM generate error: ' + txt);
+        }
+        const genBody = await genResp.json().catch(()=>null);
+        answer = await extractTextFromOllamaResponse(genBody);
+      } catch (e) {
+        console.error('[rag] generation error', e && e.message ? e.message : e);
+        // fallback to heuristic below
       }
-      const genBody = await genResp.json().catch(() => null);
-      answer = await extractTextFromOllamaResponse(genBody);
-    } else {
-      // Fallback: produce a conversational answer from the top snippets without calling an LLM.
-      const use = snippets.slice(0, Math.min(2, snippets.length));
-      const sentences = use.map(s => {
-        const txt = String(s).replace(/\n/g, ' ').trim();
-        const m = txt.match(/([^.?!]*[.?!])/);
-        return m ? m[0].trim() : (txt.slice(0, 200));
-      });
-      const sentimentLabel = analysis && analysis.sentiment && analysis.sentiment.label;
-      const tonePrefix = sentimentLabel === 'negative'
-        ? 'Saya mengerti kekhawatiran Anda. '
-        : 'Saya menemukan informasi berikut. ';
-      const srcList = sources.slice(0, Math.min(3, sources.length)).map(s => `${s.filename}${s.page ? ' (hal. ' + s.page + ')' : ''}`).join(', ');
-      answer = `${tonePrefix}${sentences.join(' ')} Saya merujuk pada ${srcList}.`;
     }
 
-    // persist bot answer text to memory with optional intent tag
+    if (!answer) {
+      // Heuristic synthesis from top 2 snippets
+      if (!snippets.length) {
+        answer = "Maaf — saya tidak menemukan dokumen yang relevan.";
+      } else {
+        const use = snippets.slice(0, Math.min(2, snippets.length));
+        const sentences = use.map(s => {
+          const txt = s.replace(/\n/g, ' ').trim();
+          const m = txt.match(/([^.?!]*[.?!])/);
+          return m ? m[0].trim() : (txt.slice(0, 200));
+        });
+        answer = sentences.join(' ');
+        const srcList = sources.slice(0, Math.min(3, sources.length)).map(s => `${s.filename}${s.page ? ' (p' + s.page + ')' : ''}`).join(', ');
+        if (srcList) answer = `${answer}\n\nSumber: ${srcList}`;
+      }
+    }
+
+    // persist bot answer
     try {
       await pool.query('INSERT INTO conversation_memory (id_user, sender, message, intent, sentiment_score, sentiment_label) VALUES (?,?,?,?,?,?)', [id_user, 'bot', answer || '', 'answer', null, null]);
     } catch (e) {
       console.warn('[rag] failed to persist bot memory:', e && e.message ? e.message : e);
     }
 
+    // attach file URLs if PUBLIC_BASE_URL provided
+    const baseUrl = process.env.PUBLIC_BASE_URL || '';
+    for (const s of sources) {
+      s.url = baseUrl ? `${baseUrl.replace(/\/$/, '')}/files/${s.filename}` : `/files/${s.filename}`;
+    }
+
     return res.json({ answer, sources, raw_hits: compactHits, metadata: analysis, context_messages: recent });
   } catch (err) {
-    console.error(err);
+    console.error('[rag] uncaught error:', err && err.stack ? err.stack : err);
     return res.status(500).json({ error: String(err) });
   }
 });

@@ -18,6 +18,26 @@ OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'all-mpnet-base-v2')
 LOCAL_MODEL = os.environ.get('LOCAL_MODEL', 'sentence-transformers/all-MiniLM-L6-v2')
 OLLAMA_API_KEY = os.environ.get('OLLAMA_API_KEY')
 
+
+def _ollama_post(suffixes, payload, timeout=60, headers=None):
+    """
+    Try hitting Ollama endpoints (new /api/* first, then legacy paths) until one succeeds.
+    """
+    last_exc = None
+    base = OLLAMA_URL.rstrip('/')
+    suffix_list = suffixes if isinstance(suffixes, (list, tuple)) else [suffixes]
+    for suffix in suffix_list:
+        url = f"{base}{suffix}"
+        try:
+            resp = requests.post(url, json=payload, timeout=timeout, headers=headers)
+            resp.raise_for_status()
+            return resp
+        except Exception as exc:
+            last_exc = exc
+    if last_exc:
+        raise last_exc
+    raise RuntimeError('No Ollama endpoint attempted')
+
 model = None
 if MODE == 'local' or FORCE_LOCAL:
     print(f"Starting embed service in LOCAL mode with model={LOCAL_MODEL} (force_local={FORCE_LOCAL})")
@@ -43,8 +63,7 @@ def embed():
         headers = {'Content-Type': 'application/json'}
         if OLLAMA_API_KEY:
             headers['Authorization'] = f'Bearer {OLLAMA_API_KEY}'
-        resp = requests.post(f"{OLLAMA_URL.rstrip('/')}/embed", json={"model": OLLAMA_MODEL, "input": texts}, timeout=60, headers=headers)
-        resp.raise_for_status()
+        resp = _ollama_post(('/api/embed', '/embed'), {"model": OLLAMA_MODEL, "input": texts}, timeout=60, headers=headers)
         data = resp.json()
         # Ollama may return either data.embeddings or data.data[*].embedding
         if 'embeddings' in data:

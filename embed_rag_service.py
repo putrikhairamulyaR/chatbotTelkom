@@ -83,13 +83,27 @@ def qdrant_search(vector: List[float], top_k: int = 5):
     return res
 
 
-def call_ollama_generate(prompt: str, model: str = 'gemma3:4b', max_tokens: int = 512) -> str:
+def _ollama_post_json(suffixes, payload):
     headers = {'Content-Type': 'application/json'}
     if OLLAMA_API_KEY:
         headers['Authorization'] = f'Bearer {OLLAMA_API_KEY}'
-    resp = requests.post(f"{OLLAMA_URL.rstrip('/')}/generate", json={"model": model, "prompt": prompt, "max_tokens": max_tokens}, headers=headers, timeout=60)
-    resp.raise_for_status()
-    data = resp.json()
+    last_exc = None
+    base = OLLAMA_URL.rstrip('/')
+    for suffix in suffixes:
+        url = f"{base}{suffix}"
+        try:
+            resp = requests.post(url, json=payload, headers=headers, timeout=60)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            last_exc = exc
+    if last_exc:
+        raise last_exc
+    raise RuntimeError('No Ollama endpoint attempted')
+
+
+def call_ollama_generate(prompt: str, model: str = 'gemma3:4b', max_tokens: int = 512) -> str:
+    data = _ollama_post_json(('/api/generate', '/generate'), {"model": model, "prompt": prompt, "max_tokens": max_tokens})
     # Try to extract text
     if isinstance(data, str):
         return data

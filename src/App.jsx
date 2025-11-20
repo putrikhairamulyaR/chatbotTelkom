@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import LoginPage from './views/LoginPage';
-import ChatPage from './views/ChatPage';
+import LoginPage from './views/LoginPage.jsx';
+import ChatPage from './views/ChatPage.jsx';
 
 export default function App() {
   const [user, setUser] = useState(null);

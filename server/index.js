@@ -13,22 +13,6 @@ dotenv.config();
 const app = express();
 app.use(cors());
 
-const MIN_CONFIDENCE = Number(process.env.RAG_MIN_SCORE || '0.4');
-const NO_DATA_MESSAGE = 'Untuk saat ini kami belum bisa memproses pertanyaan Anda, silakan ajukan pertanyaan ulang.';
-const RULE_KEYWORDS = ['aturan', 'peraturan', 'pasal', 'ketentuan', 'policy', 'rule', 'tatib'];
-const KP_KEYWORDS = ['kp', 'kerja praktek', 'kerja praktik', 'magang'];
-const RULE_FILENAME = process.env.RULE_FILENAME || 'aturan.pdf';
-const KP_FILENAME = process.env.KP_FILENAME || 'KP.pdf';
-
-function buildFilenameFilter(prompt) {
-  const text = (prompt || '').toLowerCase();
-  if (!text) return null;
-  const matches = keywords => keywords.some(k => text.includes(k));
-  if (matches(RULE_KEYWORDS)) return { must: [{ key: 'filename', match: { value: RULE_FILENAME } }] };
-  if (matches(KP_KEYWORDS)) return { must: [{ key: 'filename', match: { value: KP_FILENAME } }] };
-  return null;
-}
-
 // Custom raw body catcher + tolerant JSON parsing.
 // This prevents Express from returning 400 on malformed JSON so we can log the raw payload
 // and handle it gracefully in routes.
@@ -225,12 +209,9 @@ if (ENABLE_RAG) {
           const qdrant = new QdrantClient({ url: QDRANT_URL, checkCompatibility: false });
           const top_k = Number(body.top_k || 3);
           const collectionName = process.env.QDRANT_COLLECTION || 'documents';
-          const qdrantFilter = buildFilenameFilter(q);
           let searchRes = null;
           try {
-            const searchPayload = { vector: qvec, limit: top_k, with_payload: true };
-            if (qdrantFilter) searchPayload.filter = qdrantFilter;
-            searchRes = await qdrant.search(collectionName, searchPayload);
+            searchRes = await qdrant.search(collectionName, { vector: qvec, limit: top_k, with_payload: true });
           } catch (e) {
             try {
               const info = await qdrant.getCollection(collectionName);
@@ -243,25 +224,11 @@ if (ENABLE_RAG) {
             throw e;
           }
 
-          const confidentHits = (searchRes || []).filter(hit => typeof hit?.score === 'number' && hit.score >= MIN_CONFIDENCE);
-          if (!confidentHits.length) {
-            const fallbackAnswer = NO_DATA_MESSAGE;
-            try {
-              await pool.query(
-                'INSERT INTO conversation_memory (id_user, sender, message, intent, sentiment_score, sentiment_label) VALUES (?,?,?,?,?,?)',
-                [body.id_user ? Number(body.id_user) : null, 'bot', fallbackAnswer, 'no_data', null, null]
-              );
-            } catch (e) {
-              console.warn('[mock /api/rag] failed to persist fallback memory:', e && e.message ? e.message : e);
-            }
-            return res.json({ answer: fallbackAnswer, sources: [], raw_hits: [], metadata: body._analysis || null, context_messages: recent });
-          }
-
           // build snippets and sources
           const snippets = [];
           const sources = [];
           const compactHits = [];
-          for (const hit of confidentHits) {
+          for (const hit of searchRes) {
             const payload = hit.payload || {};
             const snippet = String(payload.snippet || payload.text || '').slice(0, 800);
             const filename = payload.filename || payload.filepath || 'unknown';
@@ -272,18 +239,21 @@ if (ENABLE_RAG) {
           }
 
           // Synthesize a concise answer from top snippets (no external LLM), with a light personalization prefix if sentiment negative
+          let answer = '';
           const sentimentLabel = body._analysis && body._analysis.sentiment && body._analysis.sentiment.label;
-          const tonePrefix = sentimentLabel === 'negative'
-            ? 'Saya mengerti kekhawatiran Anda. '
-            : 'Saya menemukan beberapa poin yang relevan. ';
-          const use = snippets.slice(0, Math.min(2, snippets.length));
-          const sentences = use.map(s => {
-            const txt = String(s).replace(/\n/g, ' ').trim();
-            const m = txt.match(/([^.?!]*[.?!])/);
-            return m ? m[0].trim() : txt.slice(0, 200);
-          });
-          const srcList = sources.slice(0, Math.min(3, sources.length)).map(s => `${s.filename}${s.page ? ' (hal. ' + s.page + ')' : ''}`).join(', ');
-          const answer = `${tonePrefix}${sentences.join(' ')} Saya merujuk pada ${srcList}.`;
+          const prefix = sentimentLabel === 'negative' ? 'Saya mengerti ini penting. ' : '';
+          if (snippets.length === 0) {
+            answer = prefix + 'Maaf, tidak menemukan dokumen yang relevan.';
+          } else {
+            const use = snippets.slice(0, Math.min(2, snippets.length));
+            const sentences = use.map(s => {
+              const txt = String(s).replace(/\n/g, ' ').trim();
+              const m = txt.match(/([^.?!]*[.?!])/);
+              return m ? m[0].trim() : txt.slice(0, 200);
+            });
+            const srcList = sources.slice(0, Math.min(3, sources.length)).map(s => `${s.filename}${s.page ? ' (p' + s.page + ')' : ''}`).join(', ');
+            answer = prefix + sentences.join(' ') + `\n\nSumber: ${srcList}`;
+          }
 
           // persist bot answer as memory and include metadata
           try {
