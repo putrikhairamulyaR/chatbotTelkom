@@ -2,8 +2,7 @@
 .chat-sidebar{width:260px;background:#0b1220;color:#fff;padding:20px;display:flex;flex-direction:column}
 .chat-sidebar .brand{font-size:18px;font-weight:700;margin-bottom:20px}
 .chat-sidebar .sidebar-search{margin-bottom:14px}
-.chat-sidebar .sidebar-search input{width:100%;padding:8px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:#fff}
-.chat-sidebar .conversations{flex:1}
+.chat-sidebar .sidebar-search input {width:90%;padding:8px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:#fff;}.chat-sidebar .conversations{flex:1}
 .chat-sidebar .conv{padding:10px;border-radius:6px;margin-bottom:8px;background:rgba(255,255,255,0.03)}
 .chat-sidebar .conv.active{background:rgba(255,255,255,0.06)}
 .chat-sidebar .user-info{margin-top:10px;font-size:13px;opacity:0.9}
