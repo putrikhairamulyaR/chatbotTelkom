@@ -2,7 +2,8 @@
 .chat-sidebar{width:260px;background:#0b1220;color:#fff;padding:20px;display:flex;flex-direction:column}
 .chat-sidebar .brand{font-size:18px;font-weight:700;margin-bottom:20px}
 .chat-sidebar .sidebar-search{margin-bottom:14px}
-.chat-sidebar .sidebar-search input {width:90%;padding:8px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:#fff;}.chat-sidebar .conversations{flex:1}
+.chat-sidebar .sidebar-search input {width:90%;padding:8px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:#fff;}
+.chat-sidebar .conversations{flex:1}
 .chat-sidebar .conv{padding:10px;border-radius:6px;margin-bottom:8px;background:rgba(255,255,255,0.03)}
 .chat-sidebar .conv.active{background:rgba(255,255,255,0.06)}
 .chat-sidebar .user-info{margin-top:10px;font-size:13px;opacity:0.9}
@@ -15,8 +16,10 @@
 .chat-main{flex:1;display:flex;flex-direction:column;background:#f7f8fb}
 .chat-header{padding:18px 24px;border-bottom:1px solid rgba(0,0,0,0.05);font-weight:600}
 .messages{flex:1;padding:20px;overflow:auto}
-.msg{padding:12px 16px;border-radius:10px;max-width:70%;margin-bottom:12px}
-.msg.bot{background:#fff;border:1px solid rgba(0,0,0,0.06)}
+.msg.bot {background: #ffffff;border: 1px solid rgba(0, 0, 0, 0.06);margin-right: auto; }
+.msg.user {background: rgba(255, 255, 255, 0.12); backdrop-filter: blur(4px);color: #111;border: 1px solid rgba(255, 255, 255, 0.2);margin-left: auto; }
+.msg {width: fit-content;max-width: 85%; padding: 12px 16px;margin-bottom: 12px;border-radius: 8px;box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);font-size: 14px;line-height: 1.5;}
 .chat-input{display:flex;padding:12px;border-top:1px solid rgba(0,0,0,0.05);background:#fff}
 .chat-input input{flex:1;padding:10px 12px;border:1px solid rgba(0,0,0,0.08);border-radius:6px;margin-right:8px}
 .chat-input button{background:#2563eb;color:#fff;border:none;padding:8px 12px;border-radius:6px}
+.dropdown-icon{margin-left: 6px;font-size: 12px;opacity: 0.8;}
