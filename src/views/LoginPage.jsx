@@ -7,6 +7,11 @@ export default function LoginPage({ onSubmit }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
+  // popup state
+  const [isPopupOpen, setIsPopupOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+
   function validate() {
     if (!username) return "Username wajib diisi";
     if (!password) return "Password wajib diisi";
@@ -26,7 +31,8 @@ export default function LoginPage({ onSubmit }) {
 
   return (
     <div className="layout">
-      {/* Left Section */}
+      
+      {/* LEFT */}
       <div className="left-section" style={{ backgroundImage: `url(${bg})` }}>
         <div className="overlay"></div>
         <div className="left-content">
@@ -36,7 +42,7 @@ export default function LoginPage({ onSubmit }) {
         </div>
       </div>
 
-      {/* Right Section */}
+      {/* RIGHT */}
       <div className="right-section">
         <div className="login-box">
           <h3 className="login-title">Login</h3>
@@ -68,17 +74,46 @@ export default function LoginPage({ onSubmit }) {
           <div className="login-info">
             <p>Kontak keluhan:</p>
 
-          <a href="#" className="help-btn">
-            <img 
-              src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
-              alt="WhatsApp"
-              style={{ width: "18px", height: "18px" }}
-            />
-            Helpdesk PuTI
-          </a>
+            <button
+              className="help-btn"
+              onClick={() => setIsPopupOpen(true)}
+            >
+              <img
+                src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
+                alt="WhatsApp"
+                style={{ width: "18px", height: "18px" }}
+              />
+              Helpdesk PuTI
+            </button>
           </div>
         </div>
       </div>
+
+      {/* POPUP */}
+      {isPopupOpen && (
+        <div className="popup-overlay">
+          <div className="popup-box">
+            <h3>Kontak Helpdesk PuTI</h3>
+            <p>WhatsApp: <strong>0823-1994-9941</strong></p>
+
+            <button
+              className="btn-copy"
+              onClick={() => {
+                navigator.clipboard.writeText("082319949941");
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+            >
+              Copy Nomor
+            </button>
+{copied && <p className="copy-text">Nomor berhasil disalin!</p>}
+
+            <button className="btn-close" onClick={() => setIsPopupOpen(false)}>
+              Tutup
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
