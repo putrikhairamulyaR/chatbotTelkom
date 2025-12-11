@@ -32,7 +32,7 @@ export default function LoginPage({ onSubmit }) {
         <div className="left-content">
           <h1 className="title-main">Selamat Datang di</h1>
           <h2 className="title-app">Chatbot</h2>
-          <p className="subtitle">Sistem Chatbot FTI Telkom University</p>
+          <p className="subtitle">Sistem Chatbot FIT Telkom University</p>
         </div>
       </div>
 
@@ -66,9 +66,16 @@ export default function LoginPage({ onSubmit }) {
           </form>
 
           <div className="login-info">
-            <p>Kontak bantuan:</p>
-            <a href="#" className="help-btn">Helpdesk</a>
-            <br />
+            <p>Kontak keluhan:</p>
+
+          <a href="#" className="help-btn">
+            <img 
+              src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
+              alt="WhatsApp"
+              style={{ width: "18px", height: "18px" }}
+            />
+            Helpdesk PuTI
+          </a>
           </div>
         </div>
       </div>
