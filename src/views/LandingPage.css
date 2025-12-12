@@ -1,0 +1,31 @@
+.landing-container {
+    background: url("./image/bg.webp");
+    background-size: cover;
+    background-position: center;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  
+  .overlay-box {
+    background: rgba(0,0,0,0.6);
+    padding: 40px;
+    color: white;
+    border-radius: 10px;
+    text-align: center;
+    width: 70%;
+    max-width: 800px;
+  }
+  
+  .btn-enter {
+    margin-top: 20px;
+    padding: 12px 25px;
+    font-size: 16px;
+    background: orange;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    color: white;
+  }
+  

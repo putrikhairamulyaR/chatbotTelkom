@@ -1,25 +1,26 @@
 import React, { useState } from 'react';
 import LoginPage from './views/LoginPage.jsx';
 import ChatPage from './views/ChatPage.jsx';
+import LandingPage from './views/LandingPage.jsx'; // <-- Tambahkan file ini
 
 export default function App() {
   const [user, setUser] = useState(null);
+  const [showLanding, setShowLanding] = useState(true); // <-- Control halaman Landing
 
   async function handleLogin(credentials) {
-    // kirim ke backend API (pastikan backend berjalan di http://localhost:4000)
     try {
-      // normalize and trim incoming credentials
-      const username = credentials.username ? String(credentials.username).trim() : '';
-      const password = credentials.password ? String(credentials.password).trim() : '';
-      console.log('Login submitted', { username, password: password ? '***' : '' });
+      const username = credentials.username
+        ? String(credentials.username).trim()
+        : '';
+      const password = credentials.password
+        ? String(credentials.password).trim()
+        : '';
 
-      // basic client-side guard
       if (!username || !password) {
         alert('Gagal: Username/email dan password wajib diisi');
         return;
       }
 
-      // if the user typed an email into the username field, send it as `email`
       const payload = {};
       if (username.includes('@')) {
         payload.email = username;
@@ -34,25 +35,42 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+
       const text = await res.text();
       let data = null;
-      try { data = text ? JSON.parse(text) : null; } catch (e) { console.error('Invalid JSON from login:', text); }
+
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch (e) {
+        console.error('Invalid JSON:', text);
+      }
+
       if (!res.ok) {
-        const msg = data && data.error ? data.error : 'Login gagal';
-        alert('Gagal: ' + msg);
+        alert('Gagal: ' + (data?.error || 'Login gagal'));
         return;
       }
 
-      // sukses — set user and navigate to chat
-      console.log('Login response', data);
-      setUser(data);
+      setUser(data); // <-- Login sukses
     } catch (err) {
       console.error(err);
       alert('Terjadi error saat menghubungi server');
     }
   }
 
-  if (user) return <ChatPage user={user} onLogout={() => setUser(null)} />;
+  // ==============================
+  //       HALAMAN YANG MUNCUL
+  // ==============================
 
-  return <LoginPage onSubmit={handleLogin} />;
+  // 1. Landing Page pertama kali
+  if (showLanding) {
+    return <LandingPage onEnter={() => setShowLanding(false)} />;
+  }
+
+  // 2. Belum login → tampilkan LoginPage
+  if (!user) {
+    return <LoginPage onSubmit={handleLogin} />;
+  }
+
+  // 3. Sudah login → tampilkan ChatPage
+  return <ChatPage user={user} onLogout={() => setUser(null)} />;
 }
