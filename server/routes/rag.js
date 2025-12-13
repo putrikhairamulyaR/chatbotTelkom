@@ -84,7 +84,6 @@ async function postWithTimeout(url, body, opts = {}) {
   try {
     return await doPost();
   } catch (err) {
-    // retry only for network/timeout-like failures
     if (retry > 0) return await postWithTimeout(url, body, { timeoutMs, retry: retry - 1, headers });
     throw err;
   }
@@ -138,42 +137,32 @@ export function cleanAnswer(text) {
   if (!text || typeof text !== 'string') return '';
   let s = text.trim();
 
-  // Buang pembuka yang template banget
   s = s.replace(/^\s*(berikut|berdasarkan dokumen|menurut dokumen|dari dokumen)\b[:\s-]*/i, '');
 
-  // Normalisasi format poin-poin: pastikan setiap poin di baris terpisah
-  // Deteksi pola poin: "1. ", "2. ", atau "- ", "• "
-  s = s.replace(/([^\n])(\d+\.\s)/g, '$1\n$2'); // Pastikan poin angka di baris baru jika tidak
-  s = s.replace(/([^\n])([-•]\s)/g, '$1\n$2'); // Pastikan bullet di baris baru jika tidak
+  s = s.replace(/([^\n])(\d+\.\s)/g, '$1\n$2');
+  s = s.replace(/([^\n])([-•]\s)/g, '$1\n$2');
 
-  // Rapikan spasi per baris (jangan rusak bullet/newline)
   s = s
     .split('\n')
     .map((line) => line.replace(/\s+/g, ' ').trimEnd())
-    .filter(line => line.length > 0 || line === '') // Hapus baris yang hanya whitespace
+    .filter((line) => line.length > 0 || line === '')
     .join('\n');
 
-  // Hapus terlalu banyak baris kosong (maksimal 1 baris kosong berturut-turut)
   s = s.replace(/\n{3,}/g, '\n\n');
 
-  // Pastikan jarak antar poin tidak terlalu jauh (maksimal 1 baris kosong)
-  // Pola: poin diikuti oleh 2+ baris kosong lalu poin berikutnya
-  s = s.replace(/(\n\d+\.\s[^\n]+)\n{2,}(\d+\.)/g, '$1\n$2'); // Poin angka ke poin angka
-  s = s.replace(/(\n[-•]\s[^\n]+)\n{2,}([-•])/g, '$1\n$2'); // Bullet ke bullet
-  s = s.replace(/(\n\d+\.\s[^\n]+)\n{2,}([-•])/g, '$1\n$2'); // Poin angka ke bullet
-  s = s.replace(/(\n[-•]\s[^\n]+)\n{2,}(\d+\.)/g, '$1\n$2'); // Bullet ke poin angka
+  s = s.replace(/(\n\d+\.\s[^\n]+)\n{2,}(\d+\.)/g, '$1\n$2');
+  s = s.replace(/(\n[-•]\s[^\n]+)\n{2,}([-•])/g, '$1\n$2');
+  s = s.replace(/(\n\d+\.\s[^\n]+)\n{2,}([-•])/g, '$1\n$2');
+  s = s.replace(/(\n[-•]\s[^\n]+)\n{2,}(\d+\.)/g, '$1\n$2');
 
-  // Pastikan jarak antara paragraf dan poin juga tidak terlalu jauh
-  s = s.replace(/([^\n]\.)\n{2,}(\d+\.)/g, '$1\n$2'); // Paragraf ke poin angka
-  s = s.replace(/([^\n]\.)\n{2,}([-•])/g, '$1\n$2'); // Paragraf ke bullet
+  s = s.replace(/([^\n]\.)\n{2,}(\d+\.)/g, '$1\n$2');
+  s = s.replace(/([^\n]\.)\n{2,}([-•])/g, '$1\n$2');
 
-  // Rapikan spasi sebelum tanda baca (per baris)
   s = s
     .split('\n')
     .map((line) => line.replace(/\s+([.,!?;:])/g, '$1'))
     .join('\n');
 
-  // Hapus baris kosong di awal dan akhir
   s = s.replace(/^\n+|\n+$/g, '');
 
   return s.trim();
@@ -228,46 +217,54 @@ function pickLastUserQuestion(recentDesc) {
 function isSmallTalk(prompt) {
   if (!prompt) return false;
   const p = prompt.toLowerCase().trim();
-  
-  // Cek apakah ada topik atau pertanyaan dalam pesan
-  const hasTopic = /\b(kp|ium|kerja\s+praktik|kerja\s+praktek|informatika\s+untuk\s+masyarakat)\b/i.test(p);
+
+  const hasTopic = /\b(kp|ium|kurikulum|magang\s+berdampak|kerja\s+praktik|kerja\s+praktek|informatika\s+untuk\s+masyarakat)\b/i.test(p);
   const hasQuestion = /[?]|apa\s|bagaimana|kenapa|kapan|siapa|dimana|berapa|gimana|mengapa/i.test(p);
-  
-  // Jika ada topik atau pertanyaan, bukan smalltalk
+
   if (hasTopic || hasQuestion) return false;
-  
-  // Exact match untuk greeting singkat (prioritas tertinggi)
-  const exactGreetings = ['__init__', 'hai', 'halo', 'hi', 'hey', 'helo', 'selamat pagi', 'selamat siang', 'selamat sore', 'selamat malam', 'assalamualaikum', 'assalamu\'alaikum'];
+
+  const exactGreetings = [
+    '__init__', 'hai', 'halo', 'hi', 'hey', 'helo',
+    'selamat pagi', 'selamat siang', 'selamat sore', 'selamat malam',
+    'assalamualaikum', "assalamu'alaikum",
+  ];
   if (exactGreetings.includes(p)) return true;
-  
-  // Jika panjang <= 20 dan hanya mengandung greeting words
+
   if (p.length <= 20) {
-    const greetingWords = ['hai', 'halo', 'hi', 'hey', 'helo', 'selamat', 'assalamualaikum', 'assalamu\'alaikum'];
-    const words = p.split(/\s+/).filter(w => w.length > 0);
-    const hasGreeting = words.some(w => greetingWords.includes(w));
-    // Jika hanya greeting words tanpa kata lain yang berarti (maksimal 3 kata)
+    const greetingWords = ['hai', 'halo', 'hi', 'hey', 'helo', 'selamat', 'assalamualaikum', "assalamu'alaikum"];
+    const words = p.split(/\s+/).filter((w) => w.length > 0);
+    const hasGreeting = words.some((w) => greetingWords.includes(w));
     if (hasGreeting && words.length <= 3) return true;
   }
-  
+
   return false;
 }
 
-function smallTalkReply(prompt) {
-  const p = (prompt || '').toLowerCase().trim();
+function smallTalkReply() {
   return `Halo! Saya asisten chatbot yang siap membantu Anda.
-
-
 
 Silakan pilih topik yang ingin Anda tanyakan:
 
 1. Kerja Praktik (KP)
-
    Ketik: 1 atau KP
 
 2. Informatika Untuk Masyarakat (IUM)
-
    Ketik: 2 atau IUM
 
+3. Kurikulum
+   Ketik: 3 atau Kurikulum
+
+4. Panduan Magang Berdampak
+   Ketik: 4 atau Magang Berdampak
+
+5. Sosialisasi Registrasi
+   Ketik: 5 atau Sosialisasi Registrasi
+
+6. Info Pendaftaran Sidang
+   Ketik: 6 atau Pendaftaran Sidang
+
+7. Sosialisasi Registrasi
+   Ketik: 7 atau Sosialisasi Registrasi
 .`;
 }
 
@@ -288,7 +285,6 @@ function isSummaryRequest(text) {
   );
 }
 
-// "kurang detail" -> jangan langsung tarik 500 chunk; cukup naikkan detail level / arahkan ke "lanjut"
 function isMoreDetailFeedback(text) {
   const t = (text || '').toLowerCase();
   return (
@@ -320,11 +316,32 @@ function isYes(text) {
     (x) => t === x || t.startsWith(x + ' ')
   );
 }
+
 function isNo(text) {
   const t = (text || '').toLowerCase().trim();
   return ['tidak', 'gak', 'ga', 'nggak', 'stop', 'cukup', 'udah', 'selesai'].some(
     (x) => t === x || t.startsWith(x + ' ')
   );
+}
+
+function isTopicMenuRequest(text) {
+  const t = (text || '').toLowerCase().trim();
+  return (
+    t === 'menu' ||
+    t === 'topik' ||
+    t.includes('ganti topik') ||
+    t.includes('topik lain') ||
+    t.includes('pilih topik') ||
+    t.includes('kembali') ||
+    t.includes('balik')
+  );
+}
+
+function looksLikeQuestion(text) {
+  const t = (text || '').toLowerCase();
+  if (!t.trim()) return false;
+  if (t.includes('?')) return true;
+  return /(apa|bagaimana|kenapa|kapan|siapa|dimana|berapa|gimana|mengapa|syarat|prosedur|cara|alur)\b/i.test(t);
 }
 
 /* ==================== Progressive disclosure marker ==================== */
@@ -350,10 +367,14 @@ function getPendingContinuation(recentDesc) {
   return null;
 }
 
-/* ==================== Topic selection (KP/IUM) ==================== */
+/* ==================== Topic selection (KP/IUM/...) ==================== */
 const TOPIC_MARKER_PREFIX = '__TOPIC__:';
 function makeTopicMarker(topic) {
-  return TOPIC_MARKER_PREFIX + JSON.stringify({ topic, set_at: Date.now() });
+  return TOPIC_MARKER_PREFIX + JSON.stringify({
+    topic: topic ?? null,
+    cleared: topic == null,
+    set_at: Date.now(),
+  });
 }
 function parseTopicMarker(s) {
   if (!s || typeof s !== 'string') return null;
@@ -368,38 +389,78 @@ function getStoredTopic(recentDesc) {
   for (const m of recentDesc || []) {
     if ((m?.sender || '').toLowerCase() !== 'meta') continue;
     const parsed = parseTopicMarker(m?.message);
+    if (!parsed) continue;
+    if (parsed.cleared) return null; // STOP: topik sudah di-reset
     if (parsed?.topic) return String(parsed.topic).toLowerCase();
   }
   return null;
 }
+
 function parseTopicChoice(text) {
   const t = String(text || '').toLowerCase().trim();
+
   if (t === '1') return 'kp';
   if (t === '2') return 'ium';
+  if (t === '3') return 'kurikulum';
+  if (t === '4') return 'magang_berdampak';
+  if (t === '5') return 'sosialisasi_registrasi';
+  if (t === '6') return 'pendaftaran_sidang';
+  if (t === '7') return 'sosialisasi_registrasi';
+
   if (t === 'kp' || t.includes('kerja praktik') || t.includes('kerja praktek')) return 'kp';
   if (t === 'ium' || t.includes('informatika untuk masyarakat')) return 'ium';
+  if (t === 'kurikulum' || t.includes('kurikulum')) return 'kurikulum';
+  if (t.includes('magang berdampak') || t.includes('panduan magang')) return 'magang_berdampak';
+  if (t.includes('sosialisasi registrasi')) return 'sosialisasi_registrasi';
+  if (t.includes('pendaftaran sidang') || t.includes('info pendaftaran sidang')) return 'pendaftaran_sidang';
+
   return null;
 }
+
 function inferTopicFromPrompt(prompt) {
   if (!prompt) return null;
   const t = String(prompt || '').toLowerCase().trim();
-  
-  // Cek IUM dengan berbagai variasi - prioritas tinggi
+
   if (/\bium\b/i.test(t)) return 'ium';
   if (t.includes('informatika untuk masyarakat')) return 'ium';
-  if (/\binformatika\s+untuk\s+masyarakat\b/i.test(t)) return 'ium';
-  
-  // Cek KP dengan berbagai variasi - prioritas tinggi
+
   if (/\bkp\b/i.test(t)) return 'kp';
   if (t.includes('kerja praktik')) return 'kp';
   if (t.includes('kerja praktek')) return 'kp';
-  if (/\bkerja\s+praktik\b/i.test(t)) return 'kp';
-  if (/\bkerja\s+praktek\b/i.test(t)) return 'kp';
-  
-  // Variasi dengan kata depan
-  if (/(?:tentang|mengenai|soal|perihal|dari|tentang|mau\s+tanya\s+tentang|ingin\s+tahu\s+tentang)\s+(?:ium|informatika\s+untuk\s+masyarakat)/i.test(t)) return 'ium';
-  if (/(?:tentang|mengenai|soal|perihal|dari|tentang|mau\s+tanya\s+tentang|ingin\s+tahu\s+tentang)\s+(?:kp|kerja\s+praktik|kerja\s+praktek)/i.test(t)) return 'kp';
-  
+
+  if (/\bkurikulum\b/i.test(t)) return 'kurikulum';
+
+  if (/\bmagang\s+berdampak\b/i.test(t)) return 'magang_berdampak';
+  if (t.includes('panduan magang')) return 'magang_berdampak';
+
+  if (/\bsosialisasi\s+registrasi\b/i.test(t)) return 'sosialisasi_registrasi';
+
+  if (/\bpendaftaran\s+sidang\b/i.test(t)) return 'pendaftaran_sidang';
+  if (t.includes('info pendaftaran sidang')) return 'pendaftaran_sidang';
+
+  return null;
+}
+
+/* ==================== MODE marker (STAY TOPIC) ==================== */
+const MODE_MARKER_PREFIX = '__MODE__:';
+function makeModeMarker(mode) {
+  return MODE_MARKER_PREFIX + JSON.stringify({ mode, set_at: Date.now() });
+}
+function parseModeMarker(s) {
+  if (!s || typeof s !== 'string') return null;
+  if (!s.startsWith(MODE_MARKER_PREFIX)) return null;
+  try {
+    return JSON.parse(s.slice(MODE_MARKER_PREFIX.length));
+  } catch {
+    return null;
+  }
+}
+function getStoredMode(recentDesc) {
+  for (const m of recentDesc || []) {
+    if ((m?.sender || '').toLowerCase() !== 'meta') continue;
+    const parsed = parseModeMarker(m?.message);
+    if (parsed?.mode) return String(parsed.mode).toLowerCase();
+  }
   return null;
 }
 
@@ -437,11 +498,6 @@ function countSentences(text) {
   return parts.length;
 }
 
-/**
- * Filter builder: biar KP/IUM ga kecampur.
- * - kalau client ngirim { topic: "kp" } -> filter by topic
- * - kalau client ngirim { filename: "KP.pdf" } -> filter by filename
- */
 function buildDocFilter({ topic, filename }) {
   const must = [];
   if (topic) must.push({ key: 'topic', match: { value: String(topic).toLowerCase() } });
@@ -449,17 +505,16 @@ function buildDocFilter({ topic, filename }) {
   return must.length ? { must } : null;
 }
 
-/* ==================== Context Builder (dibatasi biar ngebut) ==================== */
+/* ==================== Context Builder ==================== */
 async function fetchNeighborsAfterAnchor(qdrant, collection, anchorPayload, filter, opts = {}) {
   const filename = anchorPayload?.filename;
   if (!filename) return [];
 
   const count = Number(opts.count || 6);
 
-  // prefer order if exists
   if (typeof anchorPayload?.order === 'number') {
     const from = anchorPayload.order + 1;
-    const to = anchorPayload.order + Math.max(30, count * 10); // bounded
+    const to = anchorPayload.order + Math.max(30, count * 10);
 
     const must = [
       ...(filter?.must || []),
@@ -479,7 +534,6 @@ async function fetchNeighborsAfterAnchor(qdrant, collection, anchorPayload, filt
     return sorted.slice(0, count);
   }
 
-  // fallback: page + chunk_index
   const page = Number(anchorPayload?.page || 0);
   const ci = Number(anchorPayload?.chunk_index || 0);
   if (page > 0 && ci > 0) {
@@ -577,11 +631,15 @@ async function fetchNextByCursor(qdrant, collection, marker, filter, opts = {}) 
   return [];
 }
 
-function ensureClosingQuestion(answer) {
-  const closing = 'Apakah penjelasan ini sudah cukup, atau masih ada bagian lain yang ingin Anda ketahui?';
+function ensureClosingQuestion(answer, topic) {
+  const closing =
+`Apakah masih ingin bertanya tentang topik ${String(topic || '').toUpperCase()}?
+- Balas: "lanjut" kalau masih topik ini
+- Balas: "ganti topik" atau "menu" kalau mau pilih topik lain`;
+
   const a = (answer || '').trim();
   if (!a) return closing;
-  if (a.toLowerCase().includes('apakah penjelasan ini sudah cukup')) return a;
+  if (a.toLowerCase().includes('ganti topik') || a.toLowerCase().includes('menu')) return a;
   return `${a}\n\n${closing}`;
 }
 
@@ -645,55 +703,84 @@ router.post('/', async (req, res) => {
     const recentDesc = await getRecentConversation(id_user, 30);
     const pending = getPendingContinuation(recentDesc);
 
-    /* ========= TOPIC GATING ========= */
-    // CEK SMALLTALK/GREETING DULU - jika hanya greeting tanpa topik, langsung tampilkan menu
-    const isOnlyGreeting = isSmallTalk(prompt);
-    
-    // Cek topik dari prompt dulu (sebelum memory) untuk mendeteksi topik yang disebutkan bersama greeting
-    let inferredTopic = null;
-    if (!topic) {
-      inferredTopic = inferTopicFromPrompt(prompt);
-      if (inferredTopic) {
-        topic = inferredTopic;
-        await persistMessage(id_user, 'meta', makeTopicMarker(inferredTopic), 'meta', null, null);
-        if (CFG.DEBUG_TIMINGS) console.log('[rag] Topic inferred from prompt:', inferredTopic, 'for prompt:', prompt);
-      }
-    }
-    
-    // Jika hanya greeting tanpa topik (baik dari prompt maupun memory), tampilkan menu
-    if (isOnlyGreeting && !topic) {
-      const reply = smallTalkReply(prompt);
-      if (CFG.DEBUG_TIMINGS) {
-        console.log('[rag] Returning smalltalk menu:', reply);
-      }
-      await persistMessage(id_user, 'bot', reply, 'smalltalk', null, null);
+    // mode tersimpan
+    let mode = getStoredMode(recentDesc) || 'idle';
+
+    /* ========= MENU / GANTI TOPIK ========= */
+    if (isTopicMenuRequest(prompt)) {
+      await persistMessage(id_user, 'meta', makeTopicMarker(null), 'meta', null, null);
+      await persistMessage(id_user, 'meta', makeModeMarker('idle'), 'meta', null, null);
+
+      const reply = smallTalkReply();
+      await persistMessage(id_user, 'bot', reply, 'answer', null, null);
       return res.json({
         answer: reply,
         sources: [],
         raw_hits: [],
         metadata: analysis,
-        context_messages: await getRecentConversation(id_user, 10),
+        context_messages: recentDesc,
         ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
       });
     }
 
-    // PRIORITAS 1: Cek topik dari memory (jika belum ada dari prompt)
+    /* ========= TOPIC DETECTION / SELECTION ========= */
+
+    // kalau user menyebut topik di prompt (contoh: "kurikulum ...?")
+    if (!topic) {
+      const inferred = inferTopicFromPrompt(prompt);
+      if (inferred) {
+        topic = inferred;
+        await persistMessage(id_user, 'meta', makeTopicMarker(inferred), 'meta', null, null);
+
+        // kalau prompt itu beneran pertanyaan, langsung masuk "in_topic"
+        // kalau cuma nyebut topik aja, masuk "awaiting_question"
+        if (looksLikeQuestion(prompt)) {
+          await persistMessage(id_user, 'meta', makeModeMarker('in_topic'), 'meta', null, null);
+          mode = 'in_topic';
+        } else {
+          await persistMessage(id_user, 'meta', makeModeMarker('awaiting_question'), 'meta', null, null);
+          mode = 'awaiting_question';
+          const msg = `Oke, topik aktif: ${topic.toUpperCase()}.\n\nSilakan ketik pertanyaan kamu terkait topik ini.`;
+          await persistMessage(id_user, 'bot', msg, 'answer', null, null);
+          return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
+        }
+      }
+    }
+
+    // kalau belum ada, ambil dari memory
     if (!topic) topic = getStoredTopic(recentDesc);
-    
-    // PRIORITAS 3: Cek pilihan eksplisit (1/2/KP/IUM) - hanya jika belum ada topik
+
+    // pilihan eksplisit (1/2/3/4/...)
     if (!topic) {
       const chosen = parseTopicChoice(prompt);
       if (chosen) {
         topic = chosen;
         await persistMessage(id_user, 'meta', makeTopicMarker(chosen), 'meta', null, null);
+        await persistMessage(id_user, 'meta', makeModeMarker('awaiting_question'), 'meta', null, null);
+        mode = 'awaiting_question';
 
-        const msg =
-          chosen === 'ium'
-            ? 'Baik, kita akan fokus pada dokumen Informatika Untuk Masyarakat (IUM).\n\nSilakan tanyakan apa pun terkait IUM.'
-            : 'Baik, kita akan fokus pada dokumen Kerja Praktik (KP).\n\nSilakan tanyakan apa pun terkait KP.';
+        let msg = '';
+        switch (chosen) {
+          case 'ium':
+            msg = 'Baik, topik aktif: IUM.\n\nSilakan tulis pertanyaan terkait IUM.';
+            break;
+          case 'kurikulum':
+            msg = 'Baik, topik aktif: KURIKULUM.\n\nSilakan tulis pertanyaan terkait Kurikulum.';
+            break;
+          case 'magang_berdampak':
+            msg = 'Baik, topik aktif: MAGANG BERDAMPAK.\n\nSilakan tulis pertanyaan terkait Magang Berdampak.';
+            break;
+          case 'sosialisasi_registrasi':
+            msg = 'Baik, topik aktif: SOSIALISASI REGISTRASI.\n\nSilakan tulis pertanyaan terkait Sosialisasi Registrasi.';
+            break;
+          case 'pendaftaran_sidang':
+            msg = 'Baik, topik aktif: PENDAFTARAN SIDANG.\n\nSilakan tulis pertanyaan terkait Pendaftaran Sidang.';
+            break;
+          default:
+            msg = 'Baik, topik aktif: KP.\n\nSilakan tulis pertanyaan terkait Kerja Praktik (KP).';
+        }
 
         await persistMessage(id_user, 'bot', msg, 'answer', null, null);
-
         return res.json({
           answer: msg,
           sources: [],
@@ -705,25 +792,19 @@ router.post('/', async (req, res) => {
       }
     }
 
-    if (!topic) {
-      const msg = `Halo! Saya asisten chatbot yang siap membantu Anda.
-
-
-
-Silakan pilih topik yang ingin Anda tanyakan:
-
-1. Kerja Praktik (KP)
-
-   Ketik: 1 atau KP
-
-2. Informatika Untuk Masyarakat (IUM)
-
-   Ketik: 2 atau IUM
-
-.`;
+    // kalau greeting tapi sudah ada topik: jangan munculin menu, stay.
+    if (topic && isSmallTalk(prompt)) {
+      const msg = `Halo! Topik aktif sekarang: ${topic.toUpperCase()}.\n\nSilakan ketik pertanyaan kamu tentang topik ini.\nKalau mau ganti, ketik: "menu" atau "ganti topik".`;
       await persistMessage(id_user, 'bot', msg, 'answer', null, null);
+      return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
+    }
+
+    // kalau belum ada topic sama sekali: baru tampilkan menu
+    if (!topic) {
+      const reply = smallTalkReply();
+      await persistMessage(id_user, 'bot', reply, 'answer', null, null);
       return res.json({
-        answer: msg,
+        answer: reply,
         sources: [],
         raw_hits: [],
         metadata: analysis,
@@ -732,6 +813,30 @@ Silakan pilih topik yang ingin Anda tanyakan:
       });
     }
 
+    // kalau user sudah pilih topik tapi belum nanya beneran: tahan, jangan jalanin RAG.
+    if (mode === 'awaiting_question' && !looksLikeQuestion(prompt)) {
+      const p = (prompt || '').trim().toLowerCase();
+      const looksEmpty = p.length < 3 || ['ok', 'oke', 'iya', 'ya', 'siap', 'baik'].includes(p);
+
+      if (looksEmpty) {
+        const msg = `Oke, topik aktif: ${topic.toUpperCase()}.\n\nSilakan ketik pertanyaan kamu terkait topik ini.\nKalau mau ganti topik, ketik: "menu".`;
+        await persistMessage(id_user, 'bot', msg, 'answer', null, null);
+        return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
+      }
+
+      // kalau user ngetik kalimat tapi bukan pertanyaan, tetap minta pertanyaan
+      const msg = `Topik aktif: ${topic.toUpperCase()}.\n\nTolong tuliskan pertanyaan kamu (contoh: "Apa syarat ...?" / "Bagaimana prosedur ...?").\nKalau mau ganti topik, ketik: "menu".`;
+      await persistMessage(id_user, 'bot', msg, 'answer', null, null);
+      return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
+    }
+
+    // kalau sampai sini berarti: ada topik dan user mulai nanya → set mode in_topic
+    if (mode !== 'in_topic') {
+      await persistMessage(id_user, 'meta', makeModeMarker('in_topic'), 'meta', null, null);
+      mode = 'in_topic';
+    }
+
+    /* ==================== RAG ENABLE CHECK ==================== */
     if (!CFG.ENABLE_RAG) {
       const fallback = 'RAG is disabled. Set ENABLE_RAG=true di .env lalu restart.';
       await persistMessage(id_user, 'bot', fallback, 'answer', null, null);
@@ -751,14 +856,7 @@ Silakan pilih topik yang ingin Anda tanyakan:
       if (!lastAnswer) {
         const msg = 'Saya belum menemukan jawaban sebelumnya untuk diringkas.';
         await persistMessage(id_user, 'bot', msg, 'answer', null, null);
-        return res.json({
-          answer: msg,
-          sources: [],
-          raw_hits: [],
-          metadata: analysis,
-          context_messages: recentDesc,
-          ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
-        });
+        return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
       }
 
       let summarized = '';
@@ -792,47 +890,30 @@ ${lastAnswer}`,
         summarized = `• ${trimmed.slice(0, 320)}${trimmed.length > 320 ? '…' : ''}`;
       }
 
-      const msg = `${cleanAnswer(summarized)}\n\nKalau ingin versi lebih panjang, balas: "detail" atau "lanjut".`;
+      const msg = `${cleanAnswer(summarized)}\n\nKalau ingin versi lebih panjang, balas: "detail" atau "lanjut".\n\n[Kalo membutuhkan dokumen lebih rinci](https://info-bif.telkomuniversity.ac.id/links)`;
       await persistMessage(id_user, 'bot', msg, 'answer', null, null);
-      return res.json({
-        answer: msg,
-        sources: [],
-        raw_hits: [],
-        metadata: analysis,
-        context_messages: recentDesc,
-        ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
-      });
+      return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
     }
 
     /* ==================== CONTINUE MODE ==================== */
     if (pending && pending.status === 'pending') {
       if (isNo(prompt)) {
-        const msg = 'Baik, saya berhenti di sini. Jika ada hal lain, silakan tanya lagi.';
+        const msg = 'Baik, saya berhenti di sini. Jika ada hal lain, silakan tanya lagi.\n\nKalau mau ganti topik, ketik: "menu".';
         await persistMessage(id_user, 'meta', makeContMarker({ ...pending, status: 'done', done_at: Date.now() }), 'meta', null, null);
         await persistMessage(id_user, 'bot', msg, 'answer', null, null);
-        return res.json({
-          answer: msg,
-          sources: [],
-          raw_hits: [],
-          metadata: analysis,
-          context_messages: recentDesc,
-          ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
-        });
+        return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
       }
 
-      // "kurang detail" / "detail" / "lanjut" -> lanjutkan by cursor (cepet & bertahap)
-      const wantsMore = isYes(prompt) || isMoreDetailFeedback(prompt) || isExplicitDetailCommand(prompt) || (prompt || '').toLowerCase().includes('lanjut');
+      const wantsMore =
+        isYes(prompt) ||
+        isMoreDetailFeedback(prompt) ||
+        isExplicitDetailCommand(prompt) ||
+        (prompt || '').toLowerCase().includes('lanjut');
+
       if (!wantsMore) {
-        const msg = 'Balas "lanjut" untuk lanjut, atau "stop" untuk berhenti.';
+        const msg = 'Balas "lanjut" untuk lanjut, atau "stop" untuk berhenti.\nKalau mau ganti topik, ketik: "menu".';
         await persistMessage(id_user, 'bot', msg, 'answer', null, null);
-        return res.json({
-          answer: msg,
-          sources: [],
-          raw_hits: [],
-          metadata: analysis,
-          context_messages: recentDesc,
-          ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
-        });
+        return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
       }
 
       tick('qdrant_client');
@@ -878,7 +959,8 @@ Instruksi: lanjutkan penjelasan (tambahkan detail yang relevan) berdasarkan Cont
 Context:
 ${context}
 
-Tutup jawaban dengan: "Apakah penjelasan ini sudah cukup, atau masih ada bagian lain yang ingin Anda ketahui?"`,
+Tutup jawaban dengan:
+"Apakah penjelasan ini sudah cukup, atau masih ada bagian lain yang ingin Anda ketahui?"`,
           num_predict: CFG.NUM_PREDICT_NORMAL,
           temperature: CFG.TEMPERATURE,
         };
@@ -895,9 +977,8 @@ Tutup jawaban dengan: "Apakah penjelasan ini sudah cukup, atau masih ada bagian 
         answer = rawText.slice(0, 5200).trim();
       }
 
-      answer = ensureClosingQuestion(answer);
+      answer = ensureClosingQuestion(answer, topic);
 
-      // update cursor
       const last = points[points.length - 1];
       const lastOrder = typeof last?.payload?.order === 'number' ? Number(last.payload.order) : null;
       const lastChunkIndex = Number(last?.payload?.chunk_index || 0);
@@ -911,10 +992,12 @@ Tutup jawaban dengan: "Apakah penjelasan ini sudah cukup, atau masih ada bagian 
       }
 
       await persistMessage(id_user, 'meta', makeContMarker(nextMarker), 'meta', null, null);
-      await persistMessage(id_user, 'bot', answer, 'answer', null, null);
+
+      const answerWithLink = `${answer}\n\n[Kalo membutuhkan dokumen lebih rinci](https://info-bif.telkomuniversity.ac.id/links)`;
+      await persistMessage(id_user, 'bot', answerWithLink, 'answer', null, null);
 
       return res.json({
-        answer,
+        answer: answerWithLink,
         sources: usedSources.map((s) => ({
           ...s,
           url: CFG.PUBLIC_BASE_URL ? `${CFG.PUBLIC_BASE_URL}/files/${s.filename}` : `/files/${s.filename}`,
@@ -927,26 +1010,14 @@ Tutup jawaban dengan: "Apakah penjelasan ini sudah cukup, atau masih ada bagian 
     }
 
     /* ==================== DEFAULT (RAG) ==================== */
-    // Detail level:
-    // - normal: cepat
-    // - detail: lebih panjang tapi tetap dibatasi (bukan 500 chunk)
     const wantsDetail = isExplicitDetailCommand(prompt) || isMoreDetailFeedback(prompt);
 
-    // kalau user cuma bilang "detail" tapi belum ada pertanyaan sebelumnya
     if (isExplicitDetailCommand(prompt) && !pickLastUserQuestion(recentDesc)) {
       const msg = 'Boleh. Kirim pertanyaannya dulu, nanti saya jawab versi detail.';
       await persistMessage(id_user, 'bot', msg, 'answer', null, null);
-      return res.json({
-        answer: msg,
-        sources: [],
-        raw_hits: [],
-        metadata: analysis,
-        context_messages: recentDesc,
-        ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
-      });
+      return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
     }
 
-    // kalau user bilang "detail" setelah jawaban sebelumnya, pakai pertanyaan terakhir sebagai basis
     let userQuery = prompt;
     if (isExplicitDetailCommand(prompt)) {
       const lastQ = pickLastUserQuestion(recentDesc);
@@ -1011,7 +1082,6 @@ Tutup jawaban dengan: "Apakah penjelasan ini sudah cukup, atau masih ada bagian 
         if (isDefQ && looksLikeDefinitionText(text)) s += 0.25;
         if (filename && keywords.some((k) => filename.includes(k))) s += 0.02;
 
-        // anti-nyasar topic
         if (topic && payTopic === topic) s += 0.35;
         if (topic && payTopic && payTopic !== topic) s -= 0.25;
 
@@ -1024,19 +1094,11 @@ Tutup jawaban dengan: "Apakah penjelasan ini sudah cukup, atau masih ada bagian 
       .slice(0, Math.max(top_k, 10));
 
     if (!relevant.length) {
-      const msg = `Maaf, saya belum menemukan bagian dokumen yang relevan di dokumen ${topic?.toUpperCase() || 'yang dipilih'}. Coba tulis kata kunci yang lebih spesifik.`;
+      const msg = `Maaf, saya belum menemukan bagian dokumen yang relevan di topik ${topic?.toUpperCase()}. Coba tulis kata kunci yang lebih spesifik.\n\nKalau mau ganti topik, ketik: "menu".`;
       await persistMessage(id_user, 'bot', msg, 'answer', null, null);
-      return res.json({
-        answer: msg,
-        sources: [],
-        raw_hits: [],
-        metadata: analysis,
-        context_messages: recentDesc,
-        ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
-      });
+      return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
     }
 
-    // anchor + neighbors (dibatasi)
     const anchor = relevant[0];
     const anchorPayload = anchor?.payload || {};
 
@@ -1050,27 +1112,23 @@ Tutup jawaban dengan: "Apakah penjelasan ini sudah cukup, atau masih ada bagian 
     });
 
     const contextBlocks = [];
-    // Pastikan focusedText tidak kosong sebelum ditambahkan
     if (focusedText && focusedText.trim()) {
       contextBlocks.push(`SOURCE: ${anchorPayload.filename || 'doc'} (p${anchorPayload.page || '?'})\n${focusedText}`);
     }
 
     const extraCount = wantsDetail ? CFG.EXTRAS_DETAIL : CFG.EXTRAS_NORMAL;
-    const extras = relevant.slice(1, extraCount + 1).map((h) => {
-      const p = h?.payload || {};
-      const t = normalizeText(p.text || p.snippet || '').slice(0, wantsDetail ? 1400 : 1000);
-      if (!t || !t.trim()) return '';
-      return `SOURCE: ${p.filename || 'doc'} (p${p.page || '?'})\n${t}`;
-    }).filter(Boolean);
+    const extras = relevant
+      .slice(1, extraCount + 1)
+      .map((h) => {
+        const p = h?.payload || {};
+        const t = normalizeText(p.text || p.snippet || '').slice(0, wantsDetail ? 1400 : 1000);
+        if (!t || !t.trim()) return '';
+        return `SOURCE: ${p.filename || 'doc'} (p${p.page || '?'})\n${t}`;
+      })
+      .filter(Boolean);
 
     contextBlocks.push(...extras);
-    
-    // Validasi: pastikan ada context sebelum generasi
-    if (contextBlocks.length === 0) {
-      console.warn('[rag] No context blocks available for generation');
-    }
 
-    // sources list
     const sources = [];
     for (const pt of [anchor, ...neighbors]) {
       const pay = pt?.payload || {};
@@ -1097,35 +1155,32 @@ Tutup jawaban dengan: "Apakah penjelasan ini sudah cukup, atau masih ada bagian 
       }
     }
 
-    // generate answer
     let answer = '';
     if (CFG.ENABLE_RAG_GEN && contextBlocks.length > 0) {
       tick('gen');
       try {
         const contextText = contextBlocks.join('\n\n---\n\n');
-        if (!contextText || !contextText.trim()) {
-          console.warn('[rag] Context text is empty, skipping generation');
-        } else {
-          const body = {
-            model: CFG.OLLAMA_MODEL,
-            stream: false,
-            prompt: `Kamu adalah asisten AI profesional yang menjawab pertanyaan berdasarkan dokumen yang diberikan. Jawaban HARUS rapi dan hanya berdasarkan Context yang tersedia.
+        const body = {
+          model: CFG.OLLAMA_MODEL,
+          stream: false,
+          prompt: `Kamu adalah asisten AI profesional yang menjawab pertanyaan berdasarkan dokumen yang diberikan. Jawaban HARUS rapi dan hanya berdasarkan Context yang tersedia.
 
 ATURAN UTAMA:
-- Jawab langsung (tanpa "Berikut..." / "Berdasarkan dokumen...")
+- Jawab langsung
 - Fokus pada topik yang ditanyakan
 - Sitasi per kalimat faktual: (NamaFile.pdf pXX)
 - Jangan mengarang. Kalau tidak ada di context, bilang "di potongan dokumen yang tersedia belum terlihat".
 - Topik aktif: "${topic}" (jangan menyebut dokumen topik lain)
 
-FORMAT POIN-POIN (PENTING):
-- Jika ada daftar/poin-poin, SETIAP POIN HARUS di baris terpisah
-- Gunakan format: 1. Poin pertama\n2. Poin kedua\n3. Poin ketiga
-- JARAK ANTAR POIN: maksimal 1 baris kosong (tidak boleh lebih)
-- Jangan membuat jarak terlalu jauh antar poin
+FORMAT POIN-POIN:
+- Jika ada daftar/poin-poin: setiap poin harus di baris terpisah
+- Gunakan format: 1. ...\n2. ...\n3. ...
+- Jarak antar poin maksimal 1 baris kosong
 
 Gaya jawaban:
-${wantsDetail ? '- Buat lebih lengkap dan rinci, tetap ringkas per poin, boleh 3–6 paragraf.\n- Kalau ada prosedur/syarat: gunakan format poin-poin dengan setiap poin di baris terpisah, jarak antar poin maksimal 1 baris kosong.' : '- Untuk definisi: 4–7 kalimat.\n- Untuk penjelasan umum: 7–12 kalimat.\n- Untuk prosedur/syarat: gunakan format poin-poin dengan setiap poin di baris terpisah, jarak antar poin maksimal 1 baris kosong.\n- Format poin: setiap poin harus di baris terpisah, gunakan angka (1., 2., 3.) untuk setiap poin.'}
+${wantsDetail
+  ? '- Lebih lengkap dan rinci, tetap ringkas per poin.\n- Kalau ada prosedur/syarat: gunakan format poin.'
+  : '- Definisi: 4–7 kalimat.\n- Penjelasan umum: 7–12 kalimat.\n- Prosedur/syarat: format poin.'}
 
 Pertanyaan: ${userQuery}
 
@@ -1134,47 +1189,33 @@ ${contextText}
 
 Tutup jawaban dengan:
 "Apakah penjelasan ini sudah cukup, atau masih ada bagian lain yang ingin Anda ketahui?"`,
-            num_predict: wantsDetail ? CFG.NUM_PREDICT_DETAIL : CFG.NUM_PREDICT_NORMAL,
-            temperature: CFG.TEMPERATURE,
-          };
+          num_predict: wantsDetail ? CFG.NUM_PREDICT_DETAIL : CFG.NUM_PREDICT_NORMAL,
+          temperature: CFG.TEMPERATURE,
+        };
 
-          const genResp = await postOllamaWithFallback('generate', body, { timeoutMs: CFG.GEN_TIMEOUT_MS, retry: 1 });
-          if (genResp && genResp.ok) {
-            const genBody = await genResp.json();
-            const extracted = extractTextFromOllamaResponse(genBody);
-            if (extracted && extracted.trim()) {
-              answer = cleanAnswer(extracted);
-            } else {
-              console.warn('[rag] Generated answer is empty');
-            }
-          } else {
-            console.warn('[rag] Generation failed, status:', genResp?.status, 'using fallback');
-          }
+        const genResp = await postOllamaWithFallback('generate', body, { timeoutMs: CFG.GEN_TIMEOUT_MS, retry: 1 });
+        if (genResp && genResp.ok) {
+          const genBody = await genResp.json();
+          const extracted = extractTextFromOllamaResponse(genBody);
+          if (extracted && extracted.trim()) answer = cleanAnswer(extracted);
         }
       } catch (genErr) {
         console.error('[rag] Generation error:', genErr?.message || genErr);
-        // Fall through to use focusedText
       }
-    } else if (!CFG.ENABLE_RAG_GEN) {
-      console.warn('[rag] RAG generation is disabled (ENABLE_RAG_GEN=false)');
     }
 
-    // Fallback: gunakan focusedText jika generasi gagal atau tidak diaktifkan
     if (!answer || !answer.trim()) {
-      if (focusedText && focusedText.trim()) {
-        answer = cleanAnswer(focusedText);
-      } else if (contextBlocks.length > 0 && contextBlocks[0]) {
-        // Fallback ke context block pertama jika focusedText kosong
+      if (focusedText && focusedText.trim()) answer = cleanAnswer(focusedText);
+      else if (contextBlocks.length > 0 && contextBlocks[0]) {
         const firstContext = contextBlocks[0].replace(/^SOURCE:.*?\n/, '').trim();
         answer = cleanAnswer(firstContext.slice(0, 2000));
       } else {
         answer = 'Maaf, saya tidak dapat menemukan informasi yang relevan untuk pertanyaan Anda. Silakan coba dengan kata kunci yang lebih spesifik.';
       }
     }
-    
-    answer = ensureClosingQuestion(answer);
 
-    // store continuation marker
+    answer = ensureClosingQuestion(answer, topic);
+
     const nextMarker = {
       status: 'pending',
       filename: anchorPayload.filename,
@@ -1184,7 +1225,9 @@ Tutup jawaban dengan:
     };
 
     if (typeof anchorPayload.order === 'number') {
-      const lastOrder = neighbors.length ? Number(neighbors[neighbors.length - 1]?.payload?.order || anchorPayload.order) : Number(anchorPayload.order);
+      const lastOrder = neighbors.length
+        ? Number(neighbors[neighbors.length - 1]?.payload?.order || anchorPayload.order)
+        : Number(anchorPayload.order);
       nextMarker.cursor_order = lastOrder + 1;
     } else {
       const lastChunk = neighbors.length ? neighbors[neighbors.length - 1]?.payload : anchorPayload;
@@ -1194,17 +1237,15 @@ Tutup jawaban dengan:
 
     await persistMessage(id_user, 'meta', makeContMarker(nextMarker), 'meta', null, null);
 
-    // Pastikan answer tidak kosong
-    if (!answer || !answer.trim()) {
-      answer = 'Maaf, saya tidak dapat menemukan informasi yang relevan untuk pertanyaan Anda. Silakan coba dengan kata kunci yang lebih spesifik.';
-    }
-
-    // append doc link (tanpa memodifikasi sitasi isi jawaban)
     const uniqueFilenames = [...new Set(sources.map((s) => s.filename).filter(Boolean))];
     const firstFile = uniqueFilenames[0] || anchorPayload.filename || 'document';
     const docUrl = CFG.PUBLIC_BASE_URL ? `${CFG.PUBLIC_BASE_URL}/files/${firstFile}` : `/files/${firstFile}`;
 
-    const finalAnswer = `${answer}\n\n---\n\n[Link dokumen: ${firstFile}](${docUrl})\n\nJika masih kurang detail, balas "lanjut" (bertahap) atau "detail" (lebih panjang).`;
+    const finalAnswer =
+      `${answer}\n\n---\n\n` +
+      `[Link dokumen: ${firstFile}](${docUrl})\n\n` +
+      `Jika masih kurang detail, balas "lanjut" (bertahap) atau "detail" (lebih panjang).\n\n` +
+      `[Kalo membutuhkan dokumen lebih rinci](https://info-bif.telkomuniversity.ac.id/links)`;
 
     await persistMessage(id_user, 'bot', finalAnswer, 'answer', null, null);
 
