@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import LoginPage from './views/LoginPage.jsx';
-import ChatPage from './views/ChatPage.jsx';
+import ChatPage from './views/ChatPage';
+import StatisticsPage from './views/StatisticsPage.jsx';
 import LandingPage from './views/LandingPage.jsx'; // <-- Tambahkan file ini
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [showLanding, setShowLanding] = useState(true); // <-- Control halaman Landing
+  const [currentPage, setCurrentPage] = useState('chat'); // 'chat' or 'statistics'
 
   async function handleLogin(credentials) {
     try {
@@ -71,6 +73,24 @@ export default function App() {
     return <LoginPage onSubmit={handleLogin} />;
   }
 
-  // 3. Sudah login → tampilkan ChatPage
-  return <ChatPage user={user} onLogout={() => setUser(null)} />;
+  // 3. Sudah login → tampilkan ChatPage atau StatisticsPage
+  if (currentPage === 'statistics') {
+    return (
+      <StatisticsPage
+        user={user}
+        onBack={() => setCurrentPage('chat')}
+        onLogout={() => {
+          setUser(null);
+          setCurrentPage('chat');
+        }}
+      />
+    );
+  }
+
+  return (
+    <ChatPage
+      user={user}
+      onLogout={() => setUser(null)}
+    />
+  );
 }

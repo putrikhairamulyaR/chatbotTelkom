@@ -7,12 +7,11 @@ import requests
 app = Flask(__name__)
 
 # Choose mode: 'local' for SentenceTransformers; 'ollama' to forward to Ollama
-# Default to 'local' so the service works out-of-the-box if Ollama embedding
-# route is not available on the host.
-MODE = os.environ.get('EMBED_MODE', 'local')
+# Default to 'ollama' so we use local Ollama embedding by default.
+MODE = os.environ.get('EMBED_MODE', 'ollama')
 # normalize mode and allow forcing local-only behavior
-MODE = MODE.strip().lower() if isinstance(MODE, str) else 'local'
-FORCE_LOCAL = os.environ.get('FORCE_LOCAL_EMBED', 'true').strip().lower() in ('1', 'true', 'yes')
+MODE = MODE.strip().lower() if isinstance(MODE, str) else 'ollama'
+FORCE_LOCAL = os.environ.get('FORCE_LOCAL_EMBED', 'false').strip().lower() in ('1', 'true', 'yes')
 OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://host.docker.internal:11434')
 OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'all-mpnet-base-v2')
 LOCAL_MODEL = os.environ.get('LOCAL_MODEL', 'sentence-transformers/all-MiniLM-L6-v2')
