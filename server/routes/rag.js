@@ -112,6 +112,45 @@ async function postOllamaWithFallback(pathSuffix, body, opts = {}) {
   throw new Error('Failed to contact Ollama endpoint');
 }
 
+async function polishAnswerWithGemma(answer) {
+  if (!answer || answer.length < 80) return answer;
+
+  try {
+    const body = {
+      model: 'gemma2:2b',
+      stream: false,
+      prompt: `Perbaiki tata bahasa dan kerapihan teks berikut tanpa mengubah makna atau menambah informasi baru.
+
+Aturan:
+- Bahasa Indonesia formal dan natural
+- Rapikan paragraf
+- Jika definisi: buat 1 paragraf pembuka yang jelas
+- Hapus potongan metadata dokumen (tanggal, tempat, nomor bab)
+- Jangan menambah fakta baru
+
+Teks:
+${answer}`,
+      temperature: 0.2,
+      num_predict: 700,
+    };
+
+    const resp = await postOllamaWithFallback('generate', body, {
+      timeoutMs: 60000,
+      retry: 1,
+    });
+
+    if (resp.ok) {
+      const data = await resp.json();
+      const polished = extractTextFromOllamaResponse(data);
+      if (polished && polished.trim()) return cleanAnswer(polished);
+    }
+  } catch (e) {
+    console.warn('[polish] fallback to raw answer');
+  }
+
+  return answer;
+}
+
 function extractTextFromOllamaResponse(resp) {
   if (!resp) return '';
   if (typeof resp === 'string') return resp;
@@ -977,7 +1016,10 @@ Tutup jawaban dengan:
         answer = rawText.slice(0, 5200).trim();
       }
 
+      answer = await polishAnswerWithGemma(answer);
       answer = ensureClosingQuestion(answer, topic);
+      answer = `${answer}\n\nINI UPDATED`;
+
 
       const last = points[points.length - 1];
       const lastOrder = typeof last?.payload?.order === 'number' ? Number(last.payload.order) : null;
@@ -1214,7 +1256,10 @@ Tutup jawaban dengan:
       }
     }
 
+    answer = await polishAnswerWithGemma(answer);
     answer = ensureClosingQuestion(answer, topic);
+    answer = `${answer}\n\nINI UPDATED`;
+
 
     const nextMarker = {
       status: 'pending',
