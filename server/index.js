@@ -181,6 +181,13 @@ const adminMod = await import('./routes/admin.js');
 const adminRouter = adminMod && (adminMod.default || adminMod);
 if (adminRouter) app.use('/api/admin', adminRouter);
 
+/* -------------------- Sentiment router -------------------- */
+try {
+  const sentMod = await import('./routes/sentiment.js');
+  const sentRouter = sentMod && (sentMod.default || sentMod);
+  if (sentRouter) app.use('/api/sentiment', sentRouter);
+} catch {}
+
 /* -------------------- RAG router -------------------- */
 const ENABLE_RAG = (process.env.ENABLE_RAG || 'false').toLowerCase() === 'true';
 console.log('[server] ENABLE_RAG=', ENABLE_RAG);

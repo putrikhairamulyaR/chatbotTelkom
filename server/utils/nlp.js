@@ -2,6 +2,8 @@
 // No external deps so it works out-of-the-box. Optionally uses OpenAI if configured.
 
 import dotenv from 'dotenv';
+import path from 'path';
+import { spawn } from 'child_process';
 
 dotenv.config();
 
@@ -18,6 +20,7 @@ const POSITIVE = ['baik', 'bagus', 'bagus banget', 'terima kasih', 'terimakasih'
 const NEGATIVE = ['nggak', 'ngga', 'gak', 'ga', 'enggak', 'tidak', 'tdk', 'gagal', 'error', 'buruk', 'buruk sekali', 'jelek', 'jelek banget', 'sulit', 'susah', 'lambat', 'lemot', 'lag', 'down', 'hang', 'crash', 'bug', 'buggy', 'fail', 'broken', 'parah', 'payah', 'mengecewakan', 'ribet', 'bingung', 'ga jelas', 'tidak jelas', 'kurang jelas', 'tidak membantu', 'ga membantu', 'tidak sesuai', 'salah', 'keliru', 'tidak akurat', 'kurang akurat', 'tidak tepat', 'kurang tepat', 'tidak memuaskan', 'kurang memuaskan', 'tidak puas', 'kurang puas', 'tidak cocok', 'kurang cocok', 'tidak berguna', 'ga berguna', 'tidak relevan', 'kurang relevan', 'tidak menjawab', 'ga menjawab', 'tidak menjawab pertanyaan', 'ga menjawab pertanyaan', 'jawabannya salah', 'jawaban salah', 'jawabannya tidak tepat', 'jawaban tidak tepat', 'jawabannya kurang jelas', 'jawaban kurang jelas'];
 
 const USE_OPENAI_NLP = (process.env.NLP_USE_OPENAI || 'false').toLowerCase() === 'true';
+const USE_PY_SENTIMENT = (process.env.NLP_USE_PYTHON || 'false').toLowerCase() === 'true';
 let openai = null;
 let openaiInitTried = false;
 
@@ -77,6 +80,57 @@ export function analyzeSentiment(text) {
   return { score, label };
 }
 
+async function analyzeSentimentPython(text) {
+  if (!USE_PY_SENTIMENT) return null;
+  try {
+    const here = path.dirname(decodeURIComponent(new URL(import.meta.url).pathname));
+    const baseDir = path.resolve(here, '..'); // server/utils -> server
+    const scriptPath = path.resolve(baseDir, 'tools', 'sentiment_pipeline.py');
+    const pyBins = [process.env.PYTHON_BIN || 'python', 'py'];
+    const payload = JSON.stringify({ text: String(text || '') });
+
+    for (const bin of pyBins) {
+      try {
+        const proc = spawn(bin, [scriptPath], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+
+        let stdout = '';
+        let stderr = '';
+        proc.stdout.on('data', (d) => (stdout += d.toString()));
+        proc.stderr.on('data', (d) => (stderr += d.toString()));
+
+        proc.stdin.write(payload);
+        proc.stdin.end();
+
+        const result = await new Promise((resolve) => {
+          const timeout = setTimeout(() => {
+            try { proc.kill(); } catch {}
+            resolve(null);
+          }, 8000);
+
+          proc.on('close', () => {
+            clearTimeout(timeout);
+            try {
+              const obj = JSON.parse(stdout || '{}');
+              resolve(obj && !obj.error ? obj : null);
+            } catch {
+              resolve(null);
+            }
+          });
+        });
+
+        if (result && typeof result.score === 'number' && result.label) {
+          return { score: result.score, label: result.label, _raw: result };
+        }
+      } catch {
+        // try next bin
+      }
+    }
+  } catch {
+    // ignore and fallback
+  }
+  return null;
+}
+
 async function analyzeMessageOpenAI(text) {
   const client = await ensureOpenAI();
   if (!client) return null;
@@ -108,6 +162,17 @@ async function analyzeMessageOpenAI(text) {
 
 // convenience combined function
 export async function analyzeMessage(text) {
+  // Try Python pipeline first if enabled
+  if (USE_PY_SENTIMENT) {
+    try {
+      const py = await analyzeSentimentPython(text);
+      if (py) {
+        const intent = detectIntent(text);
+        return { intent, sentiment: { score: py.score, label: py.label }, meta: { py } };
+      }
+    } catch {}
+  }
+
   if (USE_OPENAI_NLP) {
     const ai = await analyzeMessageOpenAI(text);
     if (ai) return ai;
