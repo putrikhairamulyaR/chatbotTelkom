@@ -35,29 +35,31 @@ function renderTextWithLinks(text) {
     return parts.length > 0 ? parts : text;
 }
 
-// Helper functions untuk localStorage
-const STORAGE_KEY = 'chatbot_conversations';
-const getStoredConversations = () => {
+// Helper functions untuk localStorage (per-user namespace)
+const getStoredConversationsByKey = (key) => {
+    const storageKey = key || 'chatbot_conversations_anon';
     try {
-        const stored = localStorage.getItem(STORAGE_KEY);
+        const stored = localStorage.getItem(storageKey);
         return stored ? JSON.parse(stored) : {};
     } catch {
         return {};
     }
 };
 
-const saveConversations = (conversations) => {
+const saveConversationsByKey = (key, conversations) => {
+    const storageKey = key || 'chatbot_conversations_anon';
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+        localStorage.setItem(storageKey, JSON.stringify(conversations));
     } catch (err) {
         console.error('Failed to save conversations:', err);
     }
 };
 
 export default function ChatPage({ user, onLogout }) {
+const storageKey = React.useMemo(() => `chatbot_conversations_${user?.id_user ?? 'anon'}`, [user?.id_user]);
 const [search, setSearch] = React.useState('');
 const [conversations, setConversations] = React.useState(() => {
-    const stored = getStoredConversations();
+    const stored = getStoredConversationsByKey(storageKey);
     // Jika belum ada conversation, buat default
     if (Object.keys(stored).length === 0) {
         const defaultId = `chat-${Date.now()}`;
@@ -68,16 +70,33 @@ const [conversations, setConversations] = React.useState(() => {
             createdAt: Date.now()
         };
         const newConvs = { [defaultId]: defaultConv };
-        saveConversations(newConvs);
+        saveConversationsByKey(storageKey, newConvs);
         return newConvs;
     }
     return stored;
 });
 const [currentChatId, setCurrentChatId] = React.useState(() => {
-    const stored = getStoredConversations();
+    const stored = getStoredConversationsByKey(storageKey);
     const ids = Object.keys(stored);
     return ids.length > 0 ? ids[ids.length - 1] : null;
 });
+// Reload conversations if user changes (different storageKey)
+React.useEffect(() => {
+    const stored = getStoredConversationsByKey(storageKey);
+    if (Object.keys(stored).length === 0) {
+        const defaultId = `chat-${Date.now()}`;
+        const defaultConv = { id: defaultId, title: 'New Chat', messages: [], createdAt: Date.now() };
+        const newConvs = { [defaultId]: defaultConv };
+        setConversations(newConvs);
+        setCurrentChatId(defaultId);
+        saveConversationsByKey(storageKey, newConvs);
+    } else {
+        setConversations(stored);
+        const ids = Object.keys(stored);
+        setCurrentChatId(ids.length > 0 ? ids[ids.length - 1] : null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [storageKey]);
 const [input, setInput] = React.useState('');
 const [showMenu, setShowMenu] = React.useState(false);
 const [loading, setLoading] = React.useState(false);
@@ -105,7 +124,7 @@ const handleNewChat = () => {
     const updated = { ...conversations, [newId]: newConv };
     setConversations(updated);
     setCurrentChatId(newId);
-    saveConversations(updated);
+    saveConversationsByKey(storageKey, updated);
 };
 
 // Switch to a different chat
@@ -120,7 +139,7 @@ const handleDeleteChat = (e, chatId) => {
     const updated = { ...conversations };
     delete updated[chatId];
     setConversations(updated);
-    saveConversations(updated);
+    saveConversationsByKey(storageKey, updated);
     
     // If deleted chat was current, switch to another or create new
     if (chatId === currentChatId) {
@@ -154,7 +173,7 @@ const handleSend = (e, overrideText = null) => {
             }
             updated[currentChatId].messages = [...(updated[currentChatId].messages || []), userMsg];
             updated[currentChatId].updatedAt = Date.now();
-            saveConversations(updated);
+            saveConversationsByKey(storageKey, updated);
             return updated;
         });
         
@@ -174,7 +193,7 @@ const handleSend = (e, overrideText = null) => {
                     const updated = { ...prev };
                     if (!updated[currentChatId]) return prev;
                     updated[currentChatId].messages = [...updated[currentChatId].messages, loadingMsg];
-                    saveConversations(updated);
+                    saveConversationsByKey(storageKey, updated);
                     return updated;
                 });
 
@@ -246,7 +265,7 @@ const handleSend = (e, overrideText = null) => {
                     }
                     
                     updated[currentChatId].updatedAt = Date.now();
-                    saveConversations(updated);
+                    saveConversationsByKey(storageKey, updated);
                     return updated;
                 });
             } catch (err) {

@@ -279,31 +279,85 @@ function isSmallTalk(prompt) {
   return false;
 }
 
-function smallTalkReply() {
-  return `Halo! Saya asisten chatbot yang siap membantu Anda.
+function toTitleCase(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const STATIC_TOPIC_ALIASES = {
+  kp: ['kp', 'kerja praktik', 'kerja_praktik'],
+  ium: ['ium', 'informatika untuk masyarakat', 'informatika_untuk_masyarakat'],
+  kurikulum: ['kurikulum'],
+  magang_berdampak: ['magang berdampak', 'magang_berdampak', 'panduan magang berdampak', 'panduan_magang_berdampak'],
+  sosialisasi_registrasi: ['sosialisasi registrasi', 'sosialisasi_registrasi'],
+  pendaftaran_sidang: ['pendaftaran sidang', 'pendaftaran_sidang', 'info pendaftaran sidang', 'info_pendaftaran_sidang'],
+};
+
+const STATIC_TOPIC_SLUGS = new Set(Object.keys(STATIC_TOPIC_ALIASES));
+
+function canonicalStaticSlug(s) {
+  const t = String(s || '').trim().toLowerCase();
+  for (const [slug, aliases] of Object.entries(STATIC_TOPIC_ALIASES)) {
+    if (aliases.includes(t)) return slug;
+    const tUnderscore = t.replace(/\s+/g, '_');
+    if (aliases.includes(tUnderscore)) return slug;
+    const tSpaced = t.replace(/_/g, ' ');
+    if (aliases.includes(tSpaced)) return slug;
+  }
+  return null;
+}
+
+function smallTalkReply(extraTopics = []) {
+  const base = `Halo! Saya asisten chatbot yang siap membantu Anda.
 
 Silakan pilih topik yang ingin Anda tanyakan:
 
 1. Kerja Praktik (KP)
-   Ketik: 1 atau KP
+  Ketik: 1 atau KP
 
 2. Informatika Untuk Masyarakat (IUM)
-   Ketik: 2 atau IUM
+  Ketik: 2 atau IUM
 
 3. Kurikulum
-   Ketik: 3 atau Kurikulum
+  Ketik: 3 atau Kurikulum
 
 4. Panduan Magang Berdampak
-   Ketik: 4 atau Magang Berdampak
+  Ketik: 4 atau Magang Berdampak
 
 5. Sosialisasi Registrasi
-   Ketik: 5 atau Sosialisasi Registrasi
+  Ketik: 5 atau Sosialisasi Registrasi
 
 6. Info Pendaftaran Sidang
-   Ketik: 6 atau Pendaftaran Sidang
+  Ketik: 6 atau Pendaftaran Sidang
 
 7. Sosialisasi Registrasi
-   Ketik: 7 atau Sosialisasi Registrasi
+  Ketik: 7 atau Sosialisasi Registrasi`;
+
+  const dyn = (extraTopics || [])
+   .map((t) => String(t || '').trim().toLowerCase())
+   .filter(Boolean);
+
+  if (!dyn.length) return base + '\n.';
+
+  const unique = Array.from(new Set(dyn));
+  const filtered = unique.filter((t) => {
+    const slug = canonicalStaticSlug(t);
+    return !slug || !STATIC_TOPIC_SLUGS.has(slug);
+  });
+
+  if (!filtered.length) return base + '\n.';
+
+  const bullets = filtered
+   .slice(0, 12)
+    .map((t) => `- ${toTitleCase(t)}\n  Ketik: ${t.replace(/\s+/g, '_')}`)
+   .join('\n\n');
+
+  return base + `
+
+Topik dari dokumen (otomatis):
+${bullets}
 .`;
 }
 
@@ -478,6 +532,52 @@ function inferTopicFromPrompt(prompt) {
   if (t.includes('info pendaftaran sidang')) return 'pendaftaran_sidang';
 
   return null;
+}
+
+/* ==================== Dynamic Topics (from Qdrant) ==================== */
+async function listDynamicTopics(maxCount = 12) {
+  try {
+    const qdrant = await createQdrantClient();
+    const sc = await qdrant.scroll(CFG.QDRANT_COLLECTION, {
+      limit: Math.max(100, maxCount * 20),
+      with_payload: true,
+      with_vector: false,
+    });
+    const points = sc?.points || sc?.result?.points || sc?.result || [];
+    const set = new Set();
+    for (const p of points) {
+      const tp = (p?.payload?.topic ?? '').toString().trim().toLowerCase();
+      if (tp) set.add(tp);
+      if (set.size >= maxCount) break;
+    }
+    return Array.from(set).sort().slice(0, maxCount);
+  } catch {
+    return [];
+  }
+}
+
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function resolveDynamicTopicFromPrompt(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p) return null;
+  try {
+    const topics = await listDynamicTopics(50);
+    for (const raw of topics) {
+      const t = String(raw || '').toLowerCase().trim();
+      const tSpace = t.replace(/_/g, ' ');
+      const variants = [t, tSpace];
+      for (const v of variants) {
+        const re = new RegExp(`\\b${escapeRegex(v)}\\b`, 'i');
+        if (re.test(p) || p === v) return t; // return canonical dynamic key (lowercase, underscores preserved if any)
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /* ==================== MODE marker (STAY TOPIC) ==================== */
@@ -725,6 +825,11 @@ router.post('/', async (req, res) => {
     const top_k = Number(rawTopK || CFG.TOP_K_DEFAULT);
     const id_user = rawIdUser ? Number(rawIdUser) : null;
 
+    // Require id_user to properly attribute conversation_memory rows
+    if (!id_user || Number.isNaN(id_user)) {
+      return res.status(401).json({ error: 'id_user required. Please login and include your id_user.' });
+    }
+
     let topic = rawTopic ? String(rawTopic).trim().toLowerCase() : null;
     const filenameFilter = rawFilename ? String(rawFilename).trim() : null;
 
@@ -750,7 +855,8 @@ router.post('/', async (req, res) => {
       await persistMessage(id_user, 'meta', makeTopicMarker(null), 'meta', null, null);
       await persistMessage(id_user, 'meta', makeModeMarker('idle'), 'meta', null, null);
 
-      const reply = smallTalkReply();
+      const dynTopics = await listDynamicTopics(12);
+      const reply = smallTalkReply(dynTopics);
       await persistMessage(id_user, 'bot', reply, 'answer', null, null);
       return res.json({
         answer: reply,
@@ -829,6 +935,26 @@ router.post('/', async (req, res) => {
           ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
         });
       }
+
+      // coba cocokan dengan topik dinamis dari dokumen
+      const dynChosen = await resolveDynamicTopicFromPrompt(prompt);
+      if (dynChosen) {
+        topic = dynChosen;
+        await persistMessage(id_user, 'meta', makeTopicMarker(dynChosen), 'meta', null, null);
+        await persistMessage(id_user, 'meta', makeModeMarker('awaiting_question'), 'meta', null, null);
+        mode = 'awaiting_question';
+
+        const msg = `Baik, topik aktif: ${toTitleCase(dynChosen)}.\n\nSilakan tulis pertanyaan terkait topik ini.`;
+        await persistMessage(id_user, 'bot', msg, 'answer', null, null);
+        return res.json({
+          answer: msg,
+          sources: [],
+          raw_hits: [],
+          metadata: analysis,
+          context_messages: recentDesc,
+          ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
+        });
+      }
     }
 
     // kalau greeting tapi sudah ada topik: jangan munculin menu, stay.
@@ -840,7 +966,8 @@ router.post('/', async (req, res) => {
 
     // kalau belum ada topic sama sekali: baru tampilkan menu
     if (!topic) {
-      const reply = smallTalkReply();
+      const dynTopics = await listDynamicTopics(12);
+      const reply = smallTalkReply(dynTopics);
       await persistMessage(id_user, 'bot', reply, 'answer', null, null);
       return res.json({
         answer: reply,

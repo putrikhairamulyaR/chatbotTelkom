@@ -2,7 +2,6 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
-import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
 import fetch from 'node-fetch';
@@ -11,6 +10,7 @@ import { pool } from './db.js';
 import nlp from './utils/nlp.js';
 
 import filesRouter from './routes/files.js';
+import { handleLogin } from './controllers/authController.js';
 
 dotenv.config();
 
@@ -22,152 +22,164 @@ app.use(cors());
  * Pasang DI ATAS semua route POST yang butuh req.body (login/rag/statistics).
  */
 app.use((req, res, next) => {
-  // Biar GET/static ga kena overhead
   const method = (req.method || 'GET').toUpperCase();
   if (method === 'GET' || method === 'HEAD') return next();
+
+  const ct = (req.headers['content-type'] || '').toLowerCase();
+  // Only handle JSON bodies here; let multer/busboy handle multipart/form-data and others
+  if (!ct.includes('application/json')) return next();
 
   let data = '';
   req.setEncoding('utf8');
 
-  req.on('data', chunk => {
+  req.on('data', (chunk) => {
     data += chunk;
   });
 
   req.on('end', () => {
     req.rawBody = data;
+    req.body = {};
 
-    const ct = (req.headers['content-type'] || '').toLowerCase();
-    if (ct.includes('application/json')) {
+    try {
+      req.body = data ? JSON.parse(data) : {};
+    } catch (err) {
+      console.warn(
+        '[raw-json] JSON parse failed:',
+        err.message,
+        'rawPreview:',
+        String(data).slice(0, 200)
+      );
+
+      // Tolerant conversion untuk JS-like object literals:
+      // {prompt:Lingkup pekerjaan KP,top_k:3}
       try {
-        req.body = data ? JSON.parse(data) : {};
-      } catch (err) {
-        console.warn(
-          '[raw-json] JSON parse failed:',
-          err.message,
-          'rawPreview:',
-          String(data).slice(0, 500)
-        );
-
-        // Tolerant conversion for JS-like object literals:
-        // {prompt:Lingkup pekerjaan KP,top_k:3}
-        try {
-          const tolerant = (raw) => {
-            let s = raw.trim();
-            if (!s.startsWith('{')) return raw;
-
-            // Quote keys: {key: -> {"key":
-            s = s.replace(/([,{\s])([A-Za-z0-9_\-]+)\s*:/g, '$1"$2":');
-
-            // Quote unquoted string values (stop at , or })
-            // NOTE: versi kamu ada spasi sebelum (?=...), ini dibenerin.
-            s = s.replace(/:\s*([^",\]\}\s][^,\}]*)\s*(?=[,\}])/g, (m, p1) => {
-              const v = String(p1 || '').trim();
-              if (/^-?\d+(?:\.\d+)?$/.test(v) || /^(true|false|null)$/i.test(v)) {
-                return ':' + v;
-              }
-              const esc = v.replace(/"/g, '\\"');
-              return ':"' + esc + '"';
-            });
-
-            return s;
-          };
-
-          const converted = tolerant(data);
-          req.body = converted ? JSON.parse(converted) : {};
-          console.warn('[raw-json] tolerant parse succeeded, body keys:', Object.keys(req.body));
-        } catch (err2) {
-          console.warn(
-            '[raw-json] tolerant parse also failed:',
-            err2.message,
-            'rawPreview:',
-            String(data).slice(0, 500)
-          );
-          req.body = {};
+        let s = String(data || '').trim();
+        if (s.startsWith('{') || s.startsWith('[')) {
+          // Quote keys: {key: -> {"key":
+          s = s.replace(/([{,]\s*)([A-Za-z0-9_]+)\s*:/g, '$1"$2":');
+          // ganti single-quote jadi double-quote
+          s = s.replace(/'/g, '"');
+          req.body = JSON.parse(s);
         }
+      } catch (e2) {
+        console.warn('[raw-json] tolerant parse failed:', e2.message);
+        req.body = {};
       }
-    } else {
-      req.body = {};
     }
 
     next();
   });
 });
 
-/* -------------------- Health -------------------- */
-app.get('/health', (req, res) => {
-  return res.json({ ok: true, pid: process.pid, env: process.env.NODE_ENV || 'development' });
-});
+/* -------------------- Routes dasar -------------------- */
+app.use('/api/files', filesRouter);
+app.post('/api/login', handleLogin);
 
-/* -------------------- Files router --------------------
- * Ini yang handle:
- * - GET /files/KP.pdf
- * - GET /files/KP.pdf?download=1
- */
-app.use('/', filesRouter);
+/* -------------------- Init DB helpers -------------------- */
 
-/* -------------------- Auth -------------------- */
-async function handleLogin(req, res) {
-  const { username, email, password } = req.body || {};
-  const usernameTrim = username ? String(username).trim() : '';
-  const emailTrim = email ? String(email).trim() : '';
-  const passwordRaw = password ? String(password).trim() : '';
-
-  console.log('[auth] handleLogin called with:', {
-    username: usernameTrim || undefined,
-    email: emailTrim || undefined,
-    password: passwordRaw ? '***' : undefined,
-  });
-
-  const idValue = usernameTrim || emailTrim;
-  if (!idValue || !passwordRaw) {
-    return res.status(400).json({ error: 'Username/email and password required' });
-  }
-
-  const field = usernameTrim ? 'username' : 'email';
-
+// Helper: Ensure admin user exists
+async function ensureAdminUser() {
   try {
+    // Cek user admin berdasarkan username=199 (sesuaikan kalau beda)
     const [rows] = await pool.query(
-      `SELECT * FROM ` + '\`user\`' + ` WHERE ${field} = ? LIMIT 1`,
-      [idValue]
+      'SELECT id_user, username FROM `user` WHERE username = ? LIMIT 1',
+      ['199']
     );
 
-    console.log('[auth] SQL rows:', rows && rows.length ? `[found ${rows.length}]` : '[]');
+    if (!rows || rows.length === 0) {
+      // coba insert dengan kolom role (kalau ada)
+      try {
+        await pool.query(
+          'INSERT INTO `user` (username, password, email, prodi, role) VALUES (?,?,?,?,?)',
+          ['199', '123', 'admin@telkom.ac.id', 'Admin', 'admin']
+        );
+      } catch (insertErr) {
+        // fallback tanpa role
+        await pool.query(
+          'INSERT INTO `user` (username, password, email, prodi) VALUES (?,?,?,?)',
+          ['199', '123', 'admin@telkom.ac.id', 'Admin']
+        );
+      }
+      console.log('[init] ✓ Admin user created: username=199, password=123');
+      return;
+    }
 
-    const user = rows[0];
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-
-    let match = false;
+    // kalau sudah ada, update biar konsisten
     try {
-      match = await bcrypt.compare(passwordRaw, user.password || '');
-    } catch {
-      match = false;
-    }
-
-    // fallback plaintext
-    if (!match && user.password && passwordRaw === user.password) {
-      console.warn(
-        `Warning: authenticating user ${user.email || user.username} using plain-text password fallback.`
+      await pool.query(
+        'UPDATE `user` SET password = ?, email = ?, prodi = ?, role = ? WHERE username = ?',
+        ['123', 'admin@telkom.ac.id', 'Admin', 'admin', '199']
       );
-      match = true;
+    } catch (updateErr) {
+      // fallback tanpa role
+      await pool.query(
+        'UPDATE `user` SET password = ?, email = ?, prodi = ? WHERE username = ?',
+        ['123', 'admin@telkom.ac.id', 'Admin', '199']
+      );
     }
 
-    if (!match) return res.status(401).json({ error: 'Invalid credentials' });
-
-    const { id_user, username: userName, email: userEmail, prodi } = user;
-    return res.json({ id_user, username: userName, email: userEmail, prodi });
+    console.log('[init] ✓ Admin user verified/updated: username=199, password=123');
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('[init] ✗ Failed to ensure admin user:', err?.message);
+    console.error('[init] Error details:', err);
   }
 }
 
-app.post('/api/login', handleLogin);
-app.post('/login', handleLogin);
+// Helper: Ensure user_log table exists
+async function ensureUserLogTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS \`user_log\` (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        id_user INT NULL,
+        action VARCHAR(100) NOT NULL,
+        resource_type VARCHAR(50),
+        resource_id VARCHAR(255),
+        details TEXT,
+        ip_address VARCHAR(45),
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (id_user),
+        INDEX (action),
+        INDEX (created_at),
+        FOREIGN KEY (id_user) REFERENCES \`user\`(id_user) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log('[init] ✓ user_log table verified');
+  } catch (err) {
+    console.warn('[init] Could not ensure user_log table:', err?.message);
+  }
+}
+
+// Run on startup (top-level)
+await ensureAdminUser();
+await ensureUserLogTable();
+// Ensure NIM column exists in `user` table
+async function ensureUserNimColumn() {
+  try {
+    const [columns] = await pool.query(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user' AND COLUMN_NAME = 'nim'"
+    );
+    if (!columns || columns.length === 0) {
+      await pool.query("ALTER TABLE `user` ADD COLUMN nim VARCHAR(100) NULL AFTER username");
+      console.log('[init] ✓ nim column added to user table');
+    }
+  } catch (err) {
+    console.warn('[init] Could not ensure nim column:', err?.message);
+  }
+}
+
+await ensureUserNimColumn();
 
 /* -------------------- Statistics router -------------------- */
 const statsMod = await import('./routes/statistics.js');
 const statsRouter = statsMod && (statsMod.default || statsMod);
 if (statsRouter) app.use('/api/statistics', statsRouter);
+
+/* -------------------- Admin router -------------------- */
+const adminMod = await import('./routes/admin.js');
+const adminRouter = adminMod && (adminMod.default || adminMod);
+if (adminRouter) app.use('/api/admin', adminRouter);
 
 /* -------------------- RAG router -------------------- */
 const ENABLE_RAG = (process.env.ENABLE_RAG || 'false').toLowerCase() === 'true';
@@ -250,7 +262,11 @@ if (ENABLE_RAG) {
           const top_k = Number(body.top_k || 3);
           const collectionName = process.env.QDRANT_COLLECTION || 'documents';
 
-          const searchRes = await qdrant.search(collectionName, { vector: qvec, limit: top_k, with_payload: true });
+          const searchRes = await qdrant.search(collectionName, {
+            vector: qvec,
+            limit: top_k,
+            with_payload: true,
+          });
 
           const snippets = [];
           const sources = [];
@@ -263,16 +279,49 @@ if (ENABLE_RAG) {
             const page = payload.page || payload.page_number || null;
 
             snippets.push(`Source: ${filename} (page ${page})\n${snippet}`);
-            sources.push({ filename, filepath: payload.filepath || `data/${filename}`, page, score: hit.score, snippet });
+            sources.push({
+              filename,
+              filepath: payload.filepath || `data/${filename}`,
+              page,
+              score: hit.score,
+              snippet,
+            });
             compactHits.push({ id: hit.id, score: hit.score, filename, page, snippet });
           }
 
           let answer = '';
           const sentimentLabel = body._analysis?.sentiment?.label;
-          const prefix = sentimentLabel === 'negative' ? 'Saya mengerti ini penting. ' : '';
+          const sentimentScore = body._analysis?.sentiment?.score || 0;
+          const isNegativeSentiment = sentimentLabel === 'negative' || sentimentScore < -0.15;
+
+          // Deteksi ketidakpuasan dengan jawaban
+          const qLower = String(q).toLowerCase();
+          const isDissatisfied =
+            isNegativeSentiment ||
+            qLower.includes('kurang jelas') ||
+            qLower.includes('tidak membantu') ||
+            qLower.includes('tidak sesuai') ||
+            qLower.includes('salah') ||
+            qLower.includes('tidak akurat') ||
+            qLower.includes('tidak memuaskan') ||
+            qLower.includes('tidak puas') ||
+            qLower.includes('tidak berguna') ||
+            qLower.includes('tidak relevan') ||
+            qLower.includes('tidak menjawab') ||
+            qLower.includes('jawabannya salah') ||
+            qLower.includes('jawaban salah') ||
+            qLower.includes('masih bingung') ||
+            qLower.includes('belum jelas') ||
+            qLower.includes('belum paham');
+
+          const empatheticPrefix = isDissatisfied
+            ? 'Saya mengerti kekhawatiran Anda. Mari saya coba jelaskan dengan lebih jelas dan detail:\n\n'
+            : '';
 
           if (!snippets.length) {
-            answer = prefix + 'Maaf, tidak menemukan dokumen yang relevan.';
+            answer =
+              empatheticPrefix +
+              'Maaf, tidak menemukan dokumen yang relevan. Silakan coba dengan kata kunci yang lebih spesifik.';
           } else {
             const use = snippets.slice(0, Math.min(2, snippets.length));
             const sentences = use.map(s => {
@@ -280,12 +329,13 @@ if (ENABLE_RAG) {
               const m = txt.match(/([^.?!]*[.?!])/);
               return m ? m[0].trim() : txt.slice(0, 200);
             });
+
             const srcList = sources
               .slice(0, Math.min(3, sources.length))
               .map(s => `${s.filename}${s.page ? ' (p' + s.page + ')' : ''}`)
               .join(', ');
 
-            answer = prefix + sentences.join(' ') + `\n\nSumber: ${srcList}`;
+            answer = empatheticPrefix + sentences.join(' ') + `\n\nSumber: ${srcList}`;
           }
 
           try {
@@ -297,7 +347,13 @@ if (ENABLE_RAG) {
             console.warn('[mock /api/rag] failed to persist bot memory:', e?.message || e);
           }
 
-          return res.json({ answer, sources, raw_hits: compactHits, metadata: body._analysis || null, context_messages: recent });
+          return res.json({
+            answer,
+            sources,
+            raw_hits: compactHits,
+            metadata: body._analysis || null,
+            context_messages: recent,
+          });
         }
 
         return res.json({ answer: 'Mock answer: no question provided.', sources: [], raw_hits: [] });

@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import LoginPage from './views/LoginPage.jsx';
 import ChatPage from './views/ChatPage';
 import StatisticsPage from './views/StatisticsPage.jsx';
-import LandingPage from './views/LandingPage.jsx'; // <-- Tambahkan file ini
+import LandingPage from './views/LandingPage.jsx';
+import AdminPage from './views/AdminPage.jsx';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -52,7 +53,20 @@ export default function App() {
         return;
       }
 
+      // Ensure id_user exists
+      if (!data?.id_user) {
+        console.error('Login response missing id_user:', data);
+        alert('Error: Server tidak mengembalikan ID user. Silakan coba lagi.');
+        return;
+      }
+
+      console.log('[App] Login successful:', { id_user: data.id_user, username: data.username, role: data.role });
       setUser(data); // <-- Login sukses
+      
+      // Jika admin, langsung redirect ke admin page
+      if (data?.role === 'admin') {
+        setCurrentPage('admin');
+      }
     } catch (err) {
       console.error(err);
       alert('Terjadi error saat menghubungi server');
@@ -73,7 +87,19 @@ export default function App() {
     return <LoginPage onSubmit={handleLogin} />;
   }
 
-  // 3. Sudah login → tampilkan ChatPage atau StatisticsPage
+  // 3. Sudah login → tampilkan halaman sesuai role
+  if (user?.role === 'admin' || currentPage === 'admin') {
+    return (
+      <AdminPage
+        user={user}
+        onLogout={() => {
+          setUser(null);
+          setCurrentPage('chat');
+        }}
+      />
+    );
+  }
+
   if (currentPage === 'statistics') {
     return (
       <StatisticsPage

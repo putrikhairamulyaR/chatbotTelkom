@@ -15,7 +15,7 @@ const INTENT_KEYWORDS = {
 };
 
 const POSITIVE = ['baik', 'bagus', 'bagus banget', 'terima kasih', 'terimakasih', 'makasih', 'thanks', 'thank you', 'ok', 'oke', 'okay', 'okey', 'okeyy', 'sip', 'sippp', 'siap', 'mantap', 'mantul', 'mantap jiwa', 'sangat baik', 'love', 'great', 'awesome', 'excellent', 'keren', 'top', 'nice', 'helpful', 'bermanfaat'];
-const NEGATIVE = ['nggak', 'ngga', 'gak', 'ga', 'enggak', 'tidak', 'tdk', 'gagal', 'error', 'buruk', 'buruk sekali', 'jelek', 'jelek banget', 'sulit', 'susah', 'lambat', 'lemot', 'lag', 'down', 'hang', 'crash', 'bug', 'buggy', 'fail', 'broken', 'parah', 'payah', 'mengecewakan', 'ribet', 'bingung', 'ga jelas', 'tidak jelas'];
+const NEGATIVE = ['nggak', 'ngga', 'gak', 'ga', 'enggak', 'tidak', 'tdk', 'gagal', 'error', 'buruk', 'buruk sekali', 'jelek', 'jelek banget', 'sulit', 'susah', 'lambat', 'lemot', 'lag', 'down', 'hang', 'crash', 'bug', 'buggy', 'fail', 'broken', 'parah', 'payah', 'mengecewakan', 'ribet', 'bingung', 'ga jelas', 'tidak jelas', 'kurang jelas', 'tidak membantu', 'ga membantu', 'tidak sesuai', 'salah', 'keliru', 'tidak akurat', 'kurang akurat', 'tidak tepat', 'kurang tepat', 'tidak memuaskan', 'kurang memuaskan', 'tidak puas', 'kurang puas', 'tidak cocok', 'kurang cocok', 'tidak berguna', 'ga berguna', 'tidak relevan', 'kurang relevan', 'tidak menjawab', 'ga menjawab', 'tidak menjawab pertanyaan', 'ga menjawab pertanyaan', 'jawabannya salah', 'jawaban salah', 'jawabannya tidak tepat', 'jawaban tidak tepat', 'jawabannya kurang jelas', 'jawaban kurang jelas'];
 
 const USE_OPENAI_NLP = (process.env.NLP_USE_OPENAI || 'false').toLowerCase() === 'true';
 let openai = null;
