@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import './AdminPage.css';
 
 const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
@@ -33,6 +33,10 @@ export default function AdminPage({ user, onLogout }) {
   const [users, setUsers] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [resources, setResources] = useState([]);
+  // Users: search term
+  const [userSearch, setUserSearch] = useState('');
+  // Audit: sort control
+  const [auditSortBy, setAuditSortBy] = useState('timestamp'); // 'timestamp' | 'user'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -147,6 +151,37 @@ export default function AdminPage({ user, onLogout }) {
       setLoading(false);
     }
   };
+
+  // ===== Derived data =====
+  const normalized = (v) => (v == null ? '' : String(v).toLowerCase());
+  const filteredUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) =>
+      normalized(u.username).includes(q) ||
+      normalized(u.email).includes(q) ||
+      normalized(u.nim).includes(q) ||
+      normalized(u.prodi).includes(q) ||
+      normalized(u.role).includes(q)
+    );
+  }, [users, userSearch]);
+
+  const sortedAuditLogs = useMemo(() => {
+    const rows = [...auditLogs];
+    if (auditSortBy === 'timestamp') {
+      rows.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    } else if (auditSortBy === 'user') {
+      const key = (x) => (x.username || x.email || String(x.id_user || '')).toString().toLowerCase();
+      rows.sort((a, b) => {
+        const ka = key(a);
+        const kb = key(b);
+        if (ka < kb) return -1;
+        if (ka > kb) return 1;
+        return 0;
+      });
+    }
+    return rows;
+  }, [auditLogs, auditSortBy]);
 
   const fetchUsers = async () => {
     try {
@@ -714,6 +749,16 @@ export default function AdminPage({ user, onLogout }) {
                 </button>
               </div>
 
+              <div className="section-controls" style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <input
+                  type="text"
+                  placeholder="Cari user (username, email, NIM, prodi, role)"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 6, minWidth: 260 }}
+                />
+              </div>
+
               {showUserForm && (
                 <div className="modal-overlay" onClick={closeUserForm}>
                   <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -807,7 +852,7 @@ export default function AdminPage({ user, onLogout }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((u) => (
+                  {filteredUsers.map((u) => (
                     <tr key={u.id_user}>
                       <td>{u.id_user}</td>
                       <td>{u.username}</td>
@@ -840,8 +885,20 @@ export default function AdminPage({ user, onLogout }) {
           {activeTab === 'audit' && (
             <div className="audit-content">
               <h2>Audit Log User</h2>
-              <div className="audit-info">
-                <p>Menampilkan log aktivitas admin dan perubahan data</p>
+              <div className="audit-info" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <p style={{ margin: 0 }}>Menampilkan log aktivitas admin dan perubahan data</p>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label htmlFor="audit-sort" style={{ color: '#475569' }}>Sort:</label>
+                  <select
+                    id="audit-sort"
+                    value={auditSortBy}
+                    onChange={(e) => setAuditSortBy(e.target.value)}
+                    style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 6 }}
+                  >
+                    <option value="timestamp">Timestamp</option>
+                    <option value="user">User (A-Z)</option>
+                  </select>
+                </div>
               </div>
               <table className="data-table">
                 <thead>
@@ -855,7 +912,7 @@ export default function AdminPage({ user, onLogout }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {auditLogs.map((log) => (
+                  {sortedAuditLogs.map((log) => (
                     <tr key={log.id}>
                       <td>{log.id}</td>
                       <td>{log.username || log.email || log.id_user}</td>
