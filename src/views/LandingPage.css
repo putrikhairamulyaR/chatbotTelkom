@@ -1,112 +1,60 @@
 .lp-wrapper {
-  display: flex;
   height: 100vh;
-  background: url("./image/bg.webp") center/cover no-repeat;
+  width: 100%;
+  background: url("./image/bg2.jpg") center / cover no-repeat;
   position: relative;
+  font-family: "Segoe UI", sans-serif;
 }
 
-/*PANEL KIRI*/
-.lp-left {
-  width: 65%;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* overlay gelap */
 .lp-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.45);
 }
 
 .lp-content {
   position: relative;
   z-index: 2;
+
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
   color: white;
-  max-width: 90%;
   padding: 20px;
 }
 
 .lp-title {
-  text-align: center;
-  font-size: 32px;
-  font-weight: bold;
-  margin-bottom: 30px;
-}
-
-/* 2 box Indonesia & English */
-.lp-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 25px;
-}
-
-.lp-box {
-  background: rgba(0, 0, 0, 0.55);
-  padding: 25px;
-  border-radius: 12px;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+  text-shadow: 0 4px 12px rgba(0,0,0,0.6);
 }
 
 .lp-subtitle {
-  font-size: 18px;
-  font-weight: bold;
-  margin-bottom: 12px;
-  text-align: center;
+  font-size: 16px;
+  opacity: 0.9;
 }
 
-.lp-box ul {
-  margin-left: 20px;
-  margin-top: 8px;
-  margin-bottom: 10px;
-}
-
-.lp-box li {
-  margin-bottom: 6px;
-}
-
-/* ========= PANEL KANAN ========= */
-.lp-right {
-  width: 35%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.93);
-  padding: 20px;
-}
-
-.lp-login-card {
+.lp-divider {
+  width: 80px;
+  height: 3px;
   background: white;
-  width: 70%;
-  padding: 35px;
-  border-radius: 14px;
-  text-align: center;
-  box-shadow: 0px 3px 15px rgba(0, 0, 0, 0.15);
+  margin: 20px 0;
 }
 
-.lp-login-title {
-  font-size: 22px;
-  font-weight: bold;
-  margin-bottom: 25px;
+.lp-text {
+  font-size: 15px;
+  margin: 4px 0;
+  opacity: 0.95;
 }
 
-/* tombol */
-.lp-btn {
-  width: 100%;
-  padding: 8px 0;
-  border-radius: 6px;
-  border: 1px solid #3a3a3a;
-  background: #1f1f1f;
-  color: white;
-  font-size: 14px;
-  font-weight: 500;
-  transition: 0.2s;
+.lp-redirect {
+  margin-top: 30px;
+  font-size: 12px;
+  opacity: 0.7;
+  letter-spacing: 0.5px;
 }
-
-.lp-btn:hover {
-  background: #2a2a2a;
-}
-
