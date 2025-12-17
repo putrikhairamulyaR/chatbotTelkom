@@ -61,13 +61,13 @@ export default function AdminPage({ user, onLogout }) {
       setUploading(true);
       const formData = new FormData();
       formData.append('document', selectedFile);
-      formData.append('id_user', user.id_user);
       formData.append('filename', selectedFile.name);
       if (uploadTopic) formData.append('topic', uploadTopic);
       if (uploadSubtopic) formData.append('subtopic', uploadSubtopic);
 
-      const res = await fetch(`${apiBase}/api/admin/resources?id_user=${user.id_user}`, {
+      const res = await fetch(`${apiBase}/api/admin/resources`, {
         method: 'POST',
+        headers: { Authorization: `Bearer ${user.token}` },
         body: formData,
       });
 
@@ -136,7 +136,9 @@ export default function AdminPage({ user, onLogout }) {
       if (!user || !user.id_user) {
         throw new Error('User not authenticated. Please login again.');
       }
-      const res = await fetch(`${apiBase}/api/admin/dashboard?id_user=${user.id_user}`);
+      const res = await fetch(`${apiBase}/api/admin/dashboard`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ error: 'Failed to fetch dashboard' }));
         throw new Error(errorData.error || `HTTP ${res.status}: Failed to fetch dashboard`);
@@ -189,7 +191,9 @@ export default function AdminPage({ user, onLogout }) {
       if (!user || !user.id_user) {
         throw new Error('User not authenticated. Please login again.');
       }
-      const res = await fetch(`${apiBase}/api/admin/users?id_user=${user.id_user}`);
+      const res = await fetch(`${apiBase}/api/admin/users`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ error: 'Failed to fetch users' }));
         throw new Error(errorData.error || `HTTP ${res.status}: Failed to fetch users`);
@@ -211,7 +215,9 @@ export default function AdminPage({ user, onLogout }) {
       if (!user || !user.id_user) {
         throw new Error('User not authenticated. Please login again.');
       }
-      const res = await fetch(`${apiBase}/api/admin/audit-log?id_user=${user.id_user}&limit=100`);
+      const res = await fetch(`${apiBase}/api/admin/audit-log?limit=100`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ error: 'Failed to fetch audit logs' }));
         throw new Error(errorData.error || `HTTP ${res.status}: Failed to fetch audit logs`);
@@ -233,7 +239,9 @@ export default function AdminPage({ user, onLogout }) {
       if (!user || !user.id_user) {
         throw new Error('User not authenticated. Please login again.');
       }
-      const res = await fetch(`${apiBase}/api/admin/resources?id_user=${user.id_user}`);
+      const res = await fetch(`${apiBase}/api/admin/resources`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ error: 'Failed to fetch resources' }));
         throw new Error(errorData.error || `HTTP ${res.status}: Failed to fetch resources`);
@@ -255,8 +263,8 @@ export default function AdminPage({ user, onLogout }) {
       setSavingUser(true);
       const res = await fetch(`${apiBase}/api/admin/users`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...userForm, id_user: user.id_user }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
+        body: JSON.stringify({ ...userForm }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -279,8 +287,8 @@ export default function AdminPage({ user, onLogout }) {
       setSavingUser(true);
       const res = await fetch(`${apiBase}/api/admin/users/${editingUser.id_user}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...userForm, id_user: user.id_user }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
+        body: JSON.stringify({ ...userForm }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -307,8 +315,9 @@ export default function AdminPage({ user, onLogout }) {
       onConfirm: async () => {
         try {
           setDeletingUserId(id);
-          const res = await fetch(`${apiBase}/api/admin/users/${id}?id_user=${user.id_user}`, {
+          const res = await fetch(`${apiBase}/api/admin/users/${id}`, {
             method: 'DELETE',
+            headers: { Authorization: `Bearer ${user.token}` },
           });
           if (!res.ok) {
             const err = await res.json();
@@ -334,8 +343,9 @@ export default function AdminPage({ user, onLogout }) {
       onConfirm: async () => {
         try {
           setDeletingResourceName(filename);
-          const res = await fetch(`${apiBase}/api/admin/resources/${encodeURIComponent(filename)}?id_user=${user.id_user}`, {
+          const res = await fetch(`${apiBase}/api/admin/resources/${encodeURIComponent(filename)}`, {
             method: 'DELETE',
+            headers: { Authorization: `Bearer ${user.token}` },
           });
           if (!res.ok) {
             const err = await res.json();
@@ -365,13 +375,13 @@ export default function AdminPage({ user, onLogout }) {
       setUploading(true);
       const formData = new FormData();
       formData.append('document', file);
-      formData.append('id_user', user.id_user);
       formData.append('filename', file.name);
       if (uploadTopic) formData.append('topic', uploadTopic);
       if (uploadSubtopic) formData.append('subtopic', uploadSubtopic);
 
-      const res = await fetch(`${apiBase}/api/admin/resources?id_user=${user.id_user}`, {
+      const res = await fetch(`${apiBase}/api/admin/resources`, {
         method: 'POST',
+        headers: { Authorization: `Bearer ${user.token}` },
         body: formData,
       });
 
@@ -401,10 +411,10 @@ export default function AdminPage({ user, onLogout }) {
       onConfirm: async () => {
         try {
           setEmbedding({ ...embedding, [filename]: true });
-          const res = await fetch(`${apiBase}/api/admin/resources/${encodeURIComponent(filename)}/embed?id_user=${user.id_user}`, {
+          const res = await fetch(`${apiBase}/api/admin/resources/${encodeURIComponent(filename)}/embed`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id_user: user.id_user }),
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
+            body: JSON.stringify({}),
           });
 
           if (!res.ok) {

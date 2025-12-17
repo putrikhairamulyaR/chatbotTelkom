@@ -20,8 +20,7 @@ export default function App() {
         : '';
 
       if (!username || !password) {
-        alert('Gagal: Username/email dan password wajib diisi');
-        return;
+        return { ok: false, error: 'Username/email dan password wajib diisi' };
       }
 
       const payload = {};
@@ -49,27 +48,34 @@ export default function App() {
       }
 
       if (!res.ok) {
-        alert('Gagal: ' + (data?.error || 'Login gagal'));
-        return;
+        if (res.status === 401) {
+          return { ok: false, error: 'Username atau password salah' };
+        } else if (res.status === 400) {
+          return { ok: false, error: data?.error || 'Form login tidak valid' };
+        } else {
+          return { ok: false, error: 'Terjadi kesalahan saat login' };
+        }
       }
 
       // Ensure id_user exists
       if (!data?.id_user) {
         console.error('Login response missing id_user:', data);
-        alert('Error: Server tidak mengembalikan ID user. Silakan coba lagi.');
-        return;
+        return { ok: false, error: 'Server tidak mengembalikan ID user. Silakan coba lagi.' };
       }
 
       console.log('[App] Login successful:', { id_user: data.id_user, username: data.username, role: data.role });
-      setUser(data); // <-- Login sukses
+      // Persist token for session use (optional)
+      try { if (data?.token) localStorage.setItem('auth_token', data.token); } catch {}
+      setUser(data); // <-- Login sukses (includes token)
       
       // Jika admin, langsung redirect ke admin page
       if (data?.role === 'admin') {
         setCurrentPage('admin');
       }
+      return { ok: true };
     } catch (err) {
       console.error(err);
-      alert('Terjadi error saat menghubungi server');
+      return { ok: false, error: 'Terjadi error saat menghubungi server' };
     }
   }
 
@@ -93,6 +99,7 @@ export default function App() {
       <AdminPage
         user={user}
         onLogout={() => {
+          try { localStorage.removeItem('auth_token'); } catch {}
           setUser(null);
           setCurrentPage('chat');
         }}
@@ -106,6 +113,7 @@ export default function App() {
         user={user}
         onBack={() => setCurrentPage('chat')}
         onLogout={() => {
+          try { localStorage.removeItem('auth_token'); } catch {}
           setUser(null);
           setCurrentPage('chat');
         }}
@@ -116,7 +124,10 @@ export default function App() {
   return (
     <ChatPage
       user={user}
-      onLogout={() => setUser(null)}
+      onLogout={() => {
+        try { localStorage.removeItem('auth_token'); } catch {}
+        setUser(null);
+      }}
     />
   );
 }

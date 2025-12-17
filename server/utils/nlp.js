@@ -50,6 +50,11 @@ export function detectIntent(text) {
   // exact punctuation-based question heuristic
   if (t.includes('?')) return 'question';
 
+  // praise -> kepuasan (only if not a question)
+  for (const p of POSITIVE) {
+    if (t.includes(p)) return 'kepuasan';
+  }
+
   // keyword match
   for (const [intent, keys] of Object.entries(INTENT_KEYWORDS)) {
     for (const k of keys) {
@@ -167,7 +172,10 @@ export async function analyzeMessage(text) {
     try {
       const py = await analyzeSentimentPython(text);
       if (py) {
-        const intent = detectIntent(text);
+        let intent = detectIntent(text);
+        if (intent === 'unknown' && py.label === 'positive') {
+          intent = 'kepuasan';
+        }
         return { intent, sentiment: { score: py.score, label: py.label }, meta: { py } };
       }
     } catch {}
@@ -177,8 +185,11 @@ export async function analyzeMessage(text) {
     const ai = await analyzeMessageOpenAI(text);
     if (ai) return ai;
   }
-  const intent = detectIntent(text);
+  let intent = detectIntent(text);
   const sentiment = analyzeSentiment(text);
+  if (intent === 'unknown' && sentiment.score > 0.15) {
+    intent = 'kepuasan';
+  }
   return { intent, sentiment };
 }
 

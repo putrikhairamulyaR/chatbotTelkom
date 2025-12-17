@@ -142,6 +142,13 @@ input:focus {
   font-size: 14px;
 }
 
+.error-inline {
+  color: #e53935;
+  margin-top: 10px;
+  font-size: 14px;
+  text-align: center;
+}
+
 .login-info {
   margin-top: 25px;
   text-align: center;

@@ -5,6 +5,7 @@ const fetch = globalThis.fetch || nodeFetch;
 
 import { pool } from '../db.js';
 import nlp from '../utils/nlp.js';
+import { verifyToken } from '../utils/jwt.js';
 
 const router = express.Router();
 
@@ -823,11 +824,21 @@ router.post('/', async (req, res) => {
     } = req.body || {};
 
     const top_k = Number(rawTopK || CFG.TOP_K_DEFAULT);
-    const id_user = rawIdUser ? Number(rawIdUser) : null;
+    let id_user = rawIdUser ? Number(rawIdUser) : null;
+
+    // Prefer id_user from JWT if Authorization header present
+    try {
+      const auth = req.headers?.authorization || '';
+      const m = /^Bearer\s+(.+)$/i.exec(auth);
+      if (m) {
+        const payload = verifyToken(m[1]);
+        if (payload && payload.id_user) id_user = Number(payload.id_user);
+      }
+    } catch {}
 
     // Require id_user to properly attribute conversation_memory rows
     if (!id_user || Number.isNaN(id_user)) {
-      return res.status(401).json({ error: 'id_user required. Please login and include your id_user.' });
+      return res.status(401).json({ error: 'Login required. Provide Bearer token or id_user.' });
     }
 
     let topic = rawTopic ? String(rawTopic).trim().toLowerCase() : null;

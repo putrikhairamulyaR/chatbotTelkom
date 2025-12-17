@@ -302,16 +302,6 @@ async function getEmbedding(text, model = 'nomic-embed-text') {
   throw new Error('Failed to get embedding');
 }
 
-// Helper: Check if user is admin
-async function isAdmin(id_user) {
-  try {
-    const [rows] = await pool.query('SELECT role FROM `user` WHERE id_user = ?', [id_user]);
-    return rows[0]?.role === 'admin';
-  } catch {
-    return false;
-  }
-}
-
 // Helper: Log audit action (to both audit_log and user_log)
 async function logAudit(id_user, action, resourceType, resourceId, details, ip, userAgent = null) {
   try {
@@ -338,39 +328,10 @@ async function logAudit(id_user, action, resourceType, resourceId, details, ip, 
   }
 }
 
-// Middleware: Check admin
-async function requireAdmin(req, res, next) {
-  const id_user = req.body?.id_user || req.query?.id_user;
-  
-  console.log('[admin] requireAdmin check:', {
-    method: req.method,
-    path: req.path,
-    id_user: id_user,
-    hasBody: !!req.body,
-    hasQuery: !!req.query,
-    bodyKeys: req.body ? Object.keys(req.body) : [],
-    queryKeys: req.query ? Object.keys(req.query) : [],
-  });
-  
-  if (!id_user) {
-    console.warn('[admin] No id_user provided');
-    return res.status(401).json({ error: 'Authentication required. Please login first.' });
-  }
-  
-  const admin = await isAdmin(id_user);
-  if (!admin) {
-    console.warn('[admin] User is not admin:', id_user);
-    return res.status(403).json({ error: 'Admin access required. Your account does not have admin privileges.' });
-  }
-  
-  console.log('[admin] Admin access granted for user:', id_user);
-  next();
-}
-
 /* ==================== DASHBOARD ==================== */
-router.get('/dashboard', requireAdmin, async (req, res) => {
+router.get('/dashboard', async (req, res) => {
   try {
-    const id_user = req.query.id_user;
+    const id_user = req.user?.id_user;
 
     // 1. Total users
     const [userCount] = await pool.query('SELECT COUNT(*) as count FROM `user`');
@@ -584,7 +545,7 @@ router.get('/dashboard', requireAdmin, async (req, res) => {
       console.warn('[admin] Qdrant stats error:', err?.message);
     }
 
-    await logAudit(id_user, 'VIEW_DASHBOARD', 'dashboard', null, {}, req.ip, req.get('user-agent'));
+    if (id_user) await logAudit(id_user, 'VIEW_DASHBOARD', 'dashboard', null, {}, req.ip, req.get('user-agent'));
 
     return res.json({
       // Summary stats
@@ -620,9 +581,9 @@ router.get('/dashboard', requireAdmin, async (req, res) => {
 /* ==================== USER MANAGEMENT ==================== */
 
 // GET /api/admin/users - List all users
-router.get('/users', requireAdmin, async (req, res) => {
+router.get('/users', async (req, res) => {
   try {
-    const id_user = req.query.id_user;
+    const id_user = req.user?.id_user;
     const [rows] = await pool.query(
       'SELECT id_user, username, nim, email, prodi, role, created_at FROM `user` ORDER BY created_at DESC'
     );
@@ -635,9 +596,9 @@ router.get('/users', requireAdmin, async (req, res) => {
 });
 
 // POST /api/admin/users - Add new user
-router.post('/users', requireAdmin, async (req, res) => {
+router.post('/users', async (req, res) => {
   try {
-    const id_user = req.body.id_user;
+    const id_user = req.user?.id_user;
     const { username, nim, email, password, prodi, role } = req.body;
 
     if (!username || !password || !nim) {
@@ -672,9 +633,9 @@ router.post('/users', requireAdmin, async (req, res) => {
 });
 
 // PUT /api/admin/users/:id - Update user
-router.put('/users/:id', requireAdmin, async (req, res) => {
+router.put('/users/:id', async (req, res) => {
   try {
-    const id_user = req.body.id_user;
+    const id_user = req.user?.id_user;
     const targetId = parseInt(req.params.id);
     const { username, nim, email, password, prodi, role } = req.body;
 
@@ -760,14 +721,7 @@ router.put('/users/:id', requireAdmin, async (req, res) => {
 // DELETE /api/admin/users/:id - Delete user
 router.delete('/users/:id', async (req, res) => {
   try {
-    const id_user = req.query.id_user;
-    if (!id_user) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-    const admin = await isAdmin(id_user);
-    if (!admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+    const id_user = req.user?.id_user;
     const targetId = parseInt(req.params.id);
 
     // Prevent deleting yourself
@@ -793,9 +747,9 @@ router.delete('/users/:id', async (req, res) => {
 });
 
 /* ==================== AUDIT LOG ==================== */
-router.get('/audit-log', requireAdmin, async (req, res) => {
+router.get('/audit-log', async (req, res) => {
   try {
-    const id_user = req.query.id_user;
+    const id_user = req.user?.id_user;
     const limit = parseInt(req.query.limit || '100');
     const offset = parseInt(req.query.offset || '0');
 
@@ -845,9 +799,9 @@ router.get('/audit-log', requireAdmin, async (req, res) => {
 /* ==================== RESOURCE MANAGEMENT (Qdrant Documents) ==================== */
 
 // GET /api/admin/resources - List all documents (both in Qdrant and data folder)
-router.get('/resources', requireAdmin, async (req, res) => {
+router.get('/resources', async (req, res) => {
   try {
-    const id_user = req.query.id_user;
+    const id_user = req.user?.id_user;
     const qdrant = new QdrantClient({
       url: process.env.QDRANT_URL || 'http://127.0.0.1:6333',
       checkCompatibility: false,
@@ -957,14 +911,7 @@ router.get('/resources', requireAdmin, async (req, res) => {
 // DELETE /api/admin/resources/:filename - Delete document from Qdrant
 router.delete('/resources/:filename', async (req, res) => {
   try {
-    const id_user = req.query.id_user;
-    if (!id_user) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-    const admin = await isAdmin(id_user);
-    if (!admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+    const id_user = req.user?.id_user;
     const filename = decodeURIComponent(req.params.filename);
 
     const qdrant = new QdrantClient({
@@ -1018,14 +965,7 @@ router.delete('/resources/:filename', async (req, res) => {
 // POST /api/admin/resources - Upload PDF/document
 router.post('/resources', upload.single('document'), async (req, res) => {
   try {
-    const id_user = req.body.id_user || req.query.id_user;
-    if (!id_user) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-    const admin = await isAdmin(id_user);
-    if (!admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+    const id_user = req.user?.id_user;
 
     const file = req.file;
     if (!file) {
@@ -1077,14 +1017,7 @@ router.post('/resources', upload.single('document'), async (req, res) => {
 // POST /api/admin/resources/:filename/embed - Embed document to Qdrant
 router.post('/resources/:filename/embed', async (req, res) => {
   try {
-    const id_user = req.body.id_user || req.query.id_user;
-    if (!id_user) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-    const admin = await isAdmin(id_user);
-    if (!admin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+    const id_user = req.user?.id_user;
 
     const filename = decodeURIComponent(req.params.filename);
     const filePath = path.join(DATA_DIR, filename);

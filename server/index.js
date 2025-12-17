@@ -5,12 +5,14 @@ import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import fetch from 'node-fetch';
+import bcrypt from 'bcryptjs';
 
 import { pool } from './db.js';
 import nlp from './utils/nlp.js';
 
 import filesRouter from './routes/files.js';
 import { handleLogin } from './controllers/authController.js';
+import { requireAuth, requireAdmin } from './middleware/auth.js';
 
 dotenv.config();
 
@@ -87,17 +89,18 @@ async function ensureAdminUser() {
     );
 
     if (!rows || rows.length === 0) {
+      const hashed = await bcrypt.hash('123', 10);
       // coba insert dengan kolom role (kalau ada)
       try {
         await pool.query(
           'INSERT INTO `user` (username, password, email, prodi, role) VALUES (?,?,?,?,?)',
-          ['199', '123', 'admin@telkom.ac.id', 'Admin', 'admin']
+          ['199', hashed, 'admin@telkom.ac.id', 'Admin', 'admin']
         );
       } catch (insertErr) {
         // fallback tanpa role
         await pool.query(
           'INSERT INTO `user` (username, password, email, prodi) VALUES (?,?,?,?)',
-          ['199', '123', 'admin@telkom.ac.id', 'Admin']
+          ['199', hashed, 'admin@telkom.ac.id', 'Admin']
         );
       }
       console.log('[init] ✓ Admin user created: username=199, password=123');
@@ -106,15 +109,17 @@ async function ensureAdminUser() {
 
     // kalau sudah ada, update biar konsisten
     try {
+      const hashed = await bcrypt.hash('123', 10);
       await pool.query(
         'UPDATE `user` SET password = ?, email = ?, prodi = ?, role = ? WHERE username = ?',
-        ['123', 'admin@telkom.ac.id', 'Admin', 'admin', '199']
+        [hashed, 'admin@telkom.ac.id', 'Admin', 'admin', '199']
       );
     } catch (updateErr) {
       // fallback tanpa role
+      const hashed = await bcrypt.hash('123', 10);
       await pool.query(
         'UPDATE `user` SET password = ?, email = ?, prodi = ? WHERE username = ?',
-        ['123', 'admin@telkom.ac.id', 'Admin', '199']
+        [hashed, 'admin@telkom.ac.id', 'Admin', '199']
       );
     }
 
@@ -179,7 +184,7 @@ if (statsRouter) app.use('/api/statistics', statsRouter);
 /* -------------------- Admin router -------------------- */
 const adminMod = await import('./routes/admin.js');
 const adminRouter = adminMod && (adminMod.default || adminMod);
-if (adminRouter) app.use('/api/admin', adminRouter);
+if (adminRouter) app.use('/api/admin', requireAuth, requireAdmin, adminRouter);
 
 /* -------------------- Sentiment router -------------------- */
 try {

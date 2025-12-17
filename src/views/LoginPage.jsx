@@ -17,7 +17,7 @@ export default function LoginPage({ onSubmit }) {
     return "";
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     const v = validate();
     if (v) {
@@ -25,7 +25,16 @@ export default function LoginPage({ onSubmit }) {
       return;
     }
     setError("");
-    if (onSubmit) onSubmit({ username, password });
+    if (onSubmit) {
+      try {
+        const res = await onSubmit({ username, password });
+        if (!res || res.ok !== true) {
+          setError((res && res.error) || 'Terjadi kesalahan saat login');
+        }
+      } catch (err) {
+        setError('Terjadi kesalahan saat login');
+      }
+    }
   }
 
   return (
@@ -57,7 +66,7 @@ export default function LoginPage({ onSubmit }) {
         <div className="login-box">
           <h3 className="login-title">Login</h3>
 
-          {error && <div className="error">{error}</div>}
+          {/* Error pindah ke bawah tombol login */}
 
           <form onSubmit={handleSubmit}>
             <label>Username</label>
@@ -79,6 +88,12 @@ export default function LoginPage({ onSubmit }) {
             <button type="submit" className="btn-login">
               Login
             </button>
+
+            {error && (
+              <div className="error-inline" role="alert" aria-live="polite">
+                {error}
+              </div>
+            )}
           </form>
 
           <div className="login-info">
