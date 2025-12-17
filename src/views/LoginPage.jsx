@@ -11,7 +11,6 @@ export default function LoginPage({ onSubmit }) {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
-
   function validate() {
     if (!username) return "Username wajib diisi";
     if (!password) return "Password wajib diisi";
@@ -31,18 +30,29 @@ export default function LoginPage({ onSubmit }) {
 
   return (
     <div className="layout">
-      
-      {/* LEFT */}
-      <div className="left-section" style={{ backgroundImage: `url(${bg})` }}>
-        <div className="overlay"></div>
+
+      {/* ================= LEFT / HERO ================= */}
+      <div
+        className="left-section"
+        style={{ backgroundImage: `url(${bg})` }}
+      >
+        <div className="overlay" />
+
         <div className="left-content">
           <h1 className="title-main">Selamat Datang di</h1>
-          <h2 className="title-app">Chatbot</h2>
-          <p className="subtitle">Sistem Chatbot FIT Telkom University</p>
+          <h2 className="title-app">Sistem Chatbot</h2>
+          <p className="subtitle">FIT Telkom University</p>
+
+          <div className="divider" />
+
+          <p className="desc">
+            Sistem layanan informasi akademik berbasis chatbot
+            untuk Dosen dan Mahasiswa Telkom University.
+          </p>
         </div>
       </div>
 
-      {/* RIGHT */}
+      {/* ================= RIGHT / LOGIN ================= */}
       <div className="right-section">
         <div className="login-box">
           <h3 className="login-title">Login</h3>
@@ -81,7 +91,6 @@ export default function LoginPage({ onSubmit }) {
               <img
                 src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
                 alt="WhatsApp"
-                style={{ width: "18px", height: "18px" }}
               />
               Helpdesk PuTI
             </button>
@@ -89,12 +98,14 @@ export default function LoginPage({ onSubmit }) {
         </div>
       </div>
 
-      {/* POPUP */}
+      {/* ================= POPUP ================= */}
       {isPopupOpen && (
         <div className="popup-overlay">
           <div className="popup-box">
             <h3>Kontak Helpdesk PuTI</h3>
-            <p>WhatsApp: <strong>0823-1994-9941</strong></p>
+            <p>
+              WhatsApp: <strong>0823-1994-9941</strong>
+            </p>
 
             <button
               className="btn-copy"
@@ -106,9 +117,13 @@ export default function LoginPage({ onSubmit }) {
             >
               Copy Nomor
             </button>
-{copied && <p className="copy-text">Nomor berhasil disalin!</p>}
 
-            <button className="btn-close" onClick={() => setIsPopupOpen(false)}>
+            {copied && <p className="copy-text">Nomor berhasil disalin!</p>}
+
+            <button
+              className="btn-close"
+              onClick={() => setIsPopupOpen(false)}
+            >
               Tutup
             </button>
           </div>
