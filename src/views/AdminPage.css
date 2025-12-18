@@ -42,7 +42,7 @@
 /* Profile dropdown to mirror ChatPage */
 .admin-header-right .user-area{position:relative}
 .admin-header-right .user-info{display:flex;align-items:center;gap:8px;cursor:pointer;color:#374151}
-.admin-header-right .avatar{width:32px;height:32px;border-radius:50%;background:#2b6cb0;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:600}
+.admin-header-right .avatar{width:32px;height:32px;border-radius:50%;background:#AE2E31;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:600}
 .admin-header-right .profile-name{font-size:14px;font-weight:500}
 .admin-header-right .dropdown-icon{margin-left:6px;font-size:12px;opacity:.8}
 .admin-header-right .profile-menu{position:absolute;top:100%;right:0;background:#fff;color:#111;border-radius:6px;padding:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);display:flex;flex-direction:column;gap:6px;min-width:140px;margin-top:8px;z-index:100}
@@ -103,19 +103,19 @@
 
 .admin-nav button:hover {
   background: #f9fafb;
-  border-color: #2563eb;
+  border-color: #AE2E31;
 }
 
 .admin-nav button.active {
-  background: #2563eb;
+  background: #AE2E31;
   color: #fff;
-  border-color: #2563eb;
+  border-color: #AE2E31;
 }
 
 /* User area at bottom of left nav, like ChatPage */
 .admin-nav .user-area{margin-top:auto;position:relative}
 .admin-nav .user-info{display:flex;align-items:center;cursor:pointer;color:#374151}
-.admin-nav .avatar{width:34px;height:34px;border-radius:50%;background:#2b6cb0;color:#fff;display:inline-flex;align-items:center;justify-content:center;margin-right:8px;font-weight:600}
+.admin-nav .avatar{width:34px;height:34px;border-radius:50%;background:#AE2E31;color:#fff;display:inline-flex;align-items:center;justify-content:center;margin-right:8px;font-weight:600}
 .admin-nav .profile-name{font-size:13px}
 .admin-nav .dropdown-icon{margin-left:6px;font-size:12px;opacity:.8}
 .admin-nav .profile-menu{position:absolute;bottom:54px;left:10px;background:#fff;color:#111;border-radius:6px;padding:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);display:flex;flex-direction:column;gap:6px;min-width:140px}
@@ -172,9 +172,9 @@
 }
 
 .stat-card.highlight {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #AE2E31 0%, #EC3237 100%);
   color: #fff;
-  border-color: #667eea;
+  border-color: #AE2E31;
 }
 
 .stat-card.highlight h3,
@@ -205,9 +205,8 @@
   font-size: 12px;
   color: rgba(255, 255, 255, 0.8);
   font-weight: 400;
-}
-
-.dashboard-section {
+} 
+ .dashboard-section {
   margin-top: 32px;
   padding-top: 32px;
   border-top: 1px solid #e5e7eb;
@@ -268,14 +267,14 @@
 }
 
 .hourly-bar.peak {
-  background: rgba(37, 99, 235, 0.1);
+  background: rgba(174, 46, 49, 0.1);
   border-radius: 4px;
   padding: 4px;
 }
 
 .hourly-bar-fill {
   width: 100%;
-  background: linear-gradient(to top, #3b82f6, #60a5fa);
+  background: linear-gradient(to top, #AE2E31, #EC3237);
   border-radius: 4px 4px 0 0;
   min-height: 20px;
   position: relative;
@@ -283,8 +282,8 @@
 }
 
 .hourly-bar.peak .hourly-bar-fill {
-  background: linear-gradient(to top, #2563eb, #3b82f6);
-  box-shadow: 0 0 8px rgba(37, 99, 235, 0.4);
+  background: linear-gradient(to top, #8F1F22, #AE2E31);
+  box-shadow: 0 0 8px rgba(174, 46, 49, 0.4);
 }
 
 .hourly-count {
@@ -330,7 +329,7 @@
 .topic-rank {
   font-size: 18px;
   font-weight: 700;
-  color: #2563eb;
+  color: #AE2E31;
   min-width: 40px;
   text-align: center;
 }
@@ -361,7 +360,7 @@
 
 .topic-bar-fill {
   height: 100%;
-  background: linear-gradient(to right, #3b82f6, #60a5fa);
+  background: linear-gradient(to right, #AE2E31, #EC3237);
   border-radius: 4px;
   transition: width 0.3s;
 }
@@ -369,7 +368,7 @@
 .rank-badge {
   display: inline-block;
   padding: 4px 8px;
-  background: #2563eb;
+  background: #AE2E31;
   color: #fff;
   border-radius: 4px;
   font-size: 12px;
@@ -416,7 +415,7 @@
 
 /* Buttons */
 .btn-primary {
-  background: #2563eb;
+  background: #AE2E31;
   color: #fff;
   border: none;
   padding: 8px 16px;
@@ -427,7 +426,7 @@
 }
 
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: #8F1F22;
 }
 
 .btn-secondary {
@@ -443,8 +442,7 @@
 
 .btn-secondary:hover {
   background: #4b5563;
-}
-
+} 
 .btn-edit {
   background: #059669;
   color: #fff;
@@ -555,8 +553,8 @@
 .form-group input:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: #AE2E31;
+  box-shadow: 0 0 0 3px rgba(174, 46, 49, 0.1);
 }
 
 .form-actions {
@@ -575,8 +573,8 @@
 }
 
 .role-badge.admin {
-  background: #dbeafe;
-  color: #1e40af;
+  background: #fde2e2;
+  color: #7f1d1d;
 }
 
 .role-badge.user {
@@ -623,7 +621,7 @@
 }
 
 .btn-embed {
-  background: #059669;
+  background: #AE2E31;
   color: #fff;
   border: none;
   padding: 6px 12px;
@@ -635,7 +633,7 @@
 }
 
 .btn-embed:hover:not(:disabled) {
-  background: #047857;
+  background: #8F1F22;
 }
 
 .btn-embed:disabled {
@@ -652,8 +650,8 @@
 }
 
 .status-badge.embedded {
-  background: #d1fae5;
-  color: #065f46;
+  background: #fde2e2;
+  color: #7f1d1d;
 }
 
 .status-badge.not-embedded {
@@ -682,4 +680,3 @@
   font-size: 14px;
   margin: 0;
 }
-
