@@ -1,17 +1,19 @@
 .chat-root{display:flex;height:100vh;font-family:Arial,Helvetica,sans-serif}
-.chat-sidebar{width:260px;background:#0b1220;color:#fff;padding:20px;display:flex;flex-direction:column}
+.chat-sidebar{width:260px;background:#fff;color:#111;padding:20px;display:flex;flex-direction:column;border-right:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
 .chat-sidebar .brand{font-size:18px;font-weight:700;margin-bottom:20px}
 .chat-sidebar .sidebar-search{margin-bottom:14px}
-.chat-sidebar .sidebar-search input {width:90%;padding:8px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:#fff;}
+.chat-sidebar .sidebar-search input {width:100%;padding:8px 12px;border-radius:6px;border:1px solid #d1d5db;background:#fff;color:#111;}
+.chat-sidebar .sidebar-search input:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,0.1)}
 .chat-sidebar .conversations{flex:1;overflow-y:auto;margin-bottom:10px}
-.chat-sidebar .conv{padding:10px;border-radius:6px;margin-bottom:8px;background:rgba(255,255,255,0.03);cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:background 0.2s}
-.chat-sidebar .conv:hover{background:rgba(255,255,255,0.05)}
-.chat-sidebar .conv.active{background:rgba(255,255,255,0.06)}
+.chat-sidebar .conv{padding:10px;border-radius:6px;margin-bottom:8px;background:#fff;border:1px solid #e5e7eb;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:background 0.2s,border-color 0.2s,color 0.2s}
+.chat-sidebar .conv:hover{background:#f9fafb;border-color:#2563eb}
+.chat-sidebar .conv.active{background:#2563eb;color:#fff;border-color:#2563eb}
 .chat-sidebar .conv-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
-.chat-sidebar .delete-chat-btn{background:transparent;border:none;color:rgba(255,255,255,0.5);cursor:pointer;font-size:20px;line-height:1;padding:0 4px;opacity:0;transition:opacity 0.2s,color 0.2s}
+.chat-sidebar .delete-chat-btn{background:transparent;border:none;color:#6b7280;cursor:pointer;font-size:20px;line-height:1;padding:0 4px;opacity:0;transition:opacity 0.2s,color 0.2s}
 .chat-sidebar .conv:hover .delete-chat-btn{opacity:1}
-.chat-sidebar .delete-chat-btn:hover{color:#ef4444;opacity:1}
-.chat-sidebar .conv-empty{padding:10px;text-align:center;color:rgba(255,255,255,0.5);font-size:13px}
+.chat-sidebar .conv.active .delete-chat-btn{color:rgba(255,255,255,0.9)}
+.chat-sidebar .delete-chat-btn:hover{color:#dc2626;opacity:1}
+.chat-sidebar .conv-empty{padding:10px;text-align:center;color:#6b7280;font-size:13px}
 .new-chat-btn{width:100%;padding:10px;margin-bottom:14px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500;transition:background 0.2s}
 .new-chat-btn:hover{background:#1d4ed8}
 .chat-sidebar .user-info{margin-top:10px;font-size:13px;opacity:0.9}

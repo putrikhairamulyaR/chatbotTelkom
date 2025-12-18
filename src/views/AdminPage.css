@@ -2,9 +2,14 @@
   min-height: 100vh;
   background: #f7f8fb;
   font-family: Arial, Helvetica, sans-serif;
+  padding-top: 70px; /* account for fixed header */
 }
 
 .admin-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
   background: #fff;
   padding: 18px 24px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
@@ -12,6 +17,7 @@
   justify-content: space-between;
   align-items: center;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  z-index: 50;
 }
 
 .admin-header h1 {
@@ -25,12 +31,22 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  position: relative;
 }
 
 .user-info {
   color: #666;
   font-size: 14px;
 }
+
+/* Profile dropdown to mirror ChatPage */
+.admin-header-right .user-area{position:relative}
+.admin-header-right .user-info{display:flex;align-items:center;gap:8px;cursor:pointer;color:#374151}
+.admin-header-right .avatar{width:32px;height:32px;border-radius:50%;background:#2b6cb0;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:600}
+.admin-header-right .profile-name{font-size:14px;font-weight:500}
+.admin-header-right .dropdown-icon{margin-left:6px;font-size:12px;opacity:.8}
+.admin-header-right .profile-menu{position:absolute;top:100%;right:0;background:#fff;color:#111;border-radius:6px;padding:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);display:flex;flex-direction:column;gap:6px;min-width:140px;margin-top:8px;z-index:100}
+.admin-header-right .profile-menu .logout-btn{width:100%;text-align:left;padding:6px 10px;border-radius:4px}
 
 .logout-btn {
   background: #dc2626;
@@ -49,17 +65,28 @@
 
 .admin-content {
   display: flex;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 24px;
+  max-width: none; /* full width like ChatPage */
+  margin: 0;      /* remove centering */
+  margin-left: 300px; /* account for fixed sidebar */
+  padding: 24px; /* uniform padding */
   gap: 24px;
 }
 
 .admin-nav {
+  position: fixed;
+  left: 0;
+  top: 70px; /* below header */
+  bottom: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 220px;
+  width: 260px;
+  height: calc(100vh - 70px); /* full height minus header */
+  background: #fff;
+  padding: 20px;
+  border-right: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  overflow-y: auto; /* allow nav items to scroll if needed */
 }
 
 .admin-nav button {
@@ -84,6 +111,16 @@
   color: #fff;
   border-color: #2563eb;
 }
+
+/* User area at bottom of left nav, like ChatPage */
+.admin-nav .user-area{margin-top:auto;position:relative}
+.admin-nav .user-info{display:flex;align-items:center;cursor:pointer;color:#374151}
+.admin-nav .avatar{width:34px;height:34px;border-radius:50%;background:#2b6cb0;color:#fff;display:inline-flex;align-items:center;justify-content:center;margin-right:8px;font-weight:600}
+.admin-nav .profile-name{font-size:13px}
+.admin-nav .dropdown-icon{margin-left:6px;font-size:12px;opacity:.8}
+.admin-nav .profile-menu{position:absolute;bottom:54px;left:10px;background:#fff;color:#111;border-radius:6px;padding:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);display:flex;flex-direction:column;gap:6px;min-width:140px}
+.admin-nav .profile-menu .logout-btn{background:#ef4444;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;width:100%}
+.admin-nav .profile-menu .logout-btn:hover{background:#dc2626}
 
 .admin-main {
   flex: 1;
