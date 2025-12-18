@@ -65,11 +65,11 @@
 
 .admin-content {
   display: flex;
-  max-width: none; /* full width like ChatPage */
-  margin: 0;      /* remove centering */
-  margin-left: 300px; /* account for fixed sidebar */
-  padding: 24px; /* uniform padding */
-  gap: 24px;
+  max-width: none;
+  margin: 0;
+  margin-left: 260px;
+  padding: 0; /* remove all padding to sit flush */
+  gap: 0; /* remove gap */
 }
 
 .admin-nav {
