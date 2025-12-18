@@ -19,8 +19,8 @@
 .chat-sidebar .user-info{margin-top:10px;font-size:13px;opacity:0.9}
 .chat-sidebar .user-area{margin-top:12px;position:relative}
 .chat-sidebar .user-info{display:flex;align-items:center;cursor:pointer}
-.chat-sidebar .avatar{width:34px;height:34px;border-radius:50%;background:#2b6cb0;display:inline-flex;align-items:center;justify-content:center;margin-right:8px}
-.chat-sidebar .profile-name{font-size:13px}
+.chat-sidebar .avatar{width:34px;height:34px;border-radius:50%;background:#011224;color:#fff;display:inline-flex;align-items:center;justify-content:center;margin-right:8px}
+.chat-sidebar .profile-name{font-size:13px;color:#000000}
 .profile-menu{position:absolute;bottom:54px;left:10px;background:#fff;color:#111;border-radius:6px;padding:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);display:flex;flex-direction:column;gap:6px;min-width:120px}
 .stats-btn{background:#2563eb;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;width:100%;text-align:left}
 .stats-btn:hover{background:#1d4ed8}
@@ -40,4 +40,4 @@
 .chat-input input{flex:1;padding:10px 12px;border:1px solid rgba(0,0,0,0.08);border-radius:6px}
 .chat-input button[type="submit"]{background:#2563eb;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:500}
 .chat-input button[type="submit"]:hover{background:#1d4ed8}
-.dropdown-icon{margin-left: 6px;font-size: 12px;opacity: 0.8;}
+.dropdown-icon{margin-left: 6px;font-size: 12px;opacity: 0.8;color:#000000}
