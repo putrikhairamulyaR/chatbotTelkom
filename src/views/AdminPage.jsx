@@ -952,70 +952,93 @@ export default function AdminPage({ user, onLogout }) {
             <div className="resources-content">
               <div className="section-header">
                 <h2>Pengaturan Sumber Daya</h2>
-                <button className="btn-primary" onClick={() => setShowUploadPanel(v => !v)}>
-                  {showUploadPanel ? 'Tutup Form Upload' : '+ Upload Dokumen'}
+                <button className="btn-primary" onClick={() => setShowUploadPanel(true)}>
+                  + Upload Dokumen
                 </button>
               </div>
 
               {showUploadPanel && (
-                <div className="upload-panel" style={{ marginTop: 12, padding: 16, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                  <div
-                    className="upload-drop"
-                    style={{
-                      border: '2px dashed #cbd5e1',
-                      borderRadius: 10,
-                      padding: 20,
-                      background: '#ffffff',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 16,
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => document.getElementById('file-input-hidden')?.click()}
-                  >
-                    <div style={{ fontSize: 28 }}>⬆️</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600 }}>Pilih dokumen untuk diupload</div>
-                      <div style={{ color: '#64748b', fontSize: 13 }}>Format: PDF, TXT, MD</div>
-                      {selectedFile && (
-                        <div style={{ marginTop: 6, color: '#111827' }}>Dipilih: {selectedFile.name}</div>
-                      )}
-                    </div>
-                    <label className="btn-primary" style={{ padding: '8px 12px' }}>
-                      <input
-                        id="file-input-hidden"
-                        type="file"
-                        accept=".pdf,.txt,.md"
-                        onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                        disabled={uploading}
-                        style={{ display: 'none' }}
-                      />
-                      Pilih File
-                    </label>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginTop: 12 }}>
-                    <input
-                      type="text"
-                      placeholder="Topik (opsional)"
-                      value={uploadTopic}
-                      onChange={(e) => setUploadTopic(e.target.value)}
-                      style={{ padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 6 }}
-                    />
-                    <input
-                      type="text"
-                      placeholder="Sub Topik (opsional)"
-                      value={uploadSubtopic}
-                      onChange={(e) => setUploadSubtopic(e.target.value)}
-                      style={{ padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 6 }}
-                    />
-                    <button
-                      className="btn-primary"
-                      onClick={handleSubmitUpload}
-                      disabled={uploading || !selectedFile}
+                <div className="modal-overlay" onClick={() => setShowUploadPanel(false)}>
+                  <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                    <h3>Upload Dokumen Baru</h3>
+                    <div
+                      className="upload-drop"
+                      style={{
+                        border: '2px dashed #cbd5e1',
+                        borderRadius: 10,
+                        padding: 20,
+                        background: '#f8fafc',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 16,
+                        cursor: 'pointer',
+                        marginBottom: 16,
+                      }}
+                      onClick={() => document.getElementById('file-input-hidden')?.click()}
                     >
-                      {uploading ? 'Mengunggah...' : 'Upload'}
-                    </button>
+                      <div style={{ fontSize: 32 }}>📄</div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontWeight: 600, color: '#111827' }}>Pilih dokumen untuk diupload</div>
+                        <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>Format: PDF, TXT, MD</div>
+                        {selectedFile && (
+                          <div style={{ marginTop: 8, color: '#2563eb', fontWeight: 500 }}>✓ Dipilih: {selectedFile.name}</div>
+                        )}
+                      </div>
+                      <label className="btn-primary" style={{ padding: '8px 16px', marginBottom: 0 }}>
+                        <input
+                          id="file-input-hidden"
+                          type="file"
+                          accept=".pdf,.txt,.md"
+                          onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                          disabled={uploading}
+                          style={{ display: 'none' }}
+                        />
+                        Pilih File
+                      </label>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Topik (opsional)</label>
+                      <input
+                        type="text"
+                        placeholder="Masukkan topik dokumen"
+                        value={uploadTopic}
+                        onChange={(e) => setUploadTopic(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Sub Topik (opsional)</label>
+                      <input
+                        type="text"
+                        placeholder="Masukkan sub topik dokumen"
+                        value={uploadSubtopic}
+                        onChange={(e) => setUploadSubtopic(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="form-actions">
+                      <button
+                        className="btn-primary"
+                        onClick={handleSubmitUpload}
+                        disabled={uploading || !selectedFile}
+                      >
+                        {uploading ? 'Mengunggah...' : 'Upload'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => {
+                          setShowUploadPanel(false);
+                          setSelectedFile(null);
+                          setUploadTopic('');
+                          setUploadSubtopic('');
+                        }}
+                        disabled={uploading}
+                      >
+                        Batal
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
