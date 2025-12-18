@@ -176,16 +176,50 @@ def main():
 
         lang, text_en = translate_to_english(text)
 
+        # Individual method scores
         scores = {
             'textblob': textblob_polarity(text_en),
             'vader': vader_polarity(text_en),
             'sentiwordnet': swn_polarity(text_en),
         }
-        # combine by mean
-        vals = [v for v in scores.values() if isinstance(v, (int, float))]
+
+        # Determine availability to avoid biasing majority with missing tools
+        tb_available = TextBlob is not None
+        vd_available = SentimentIntensityAnalyzer is not None
+        swn_available = all([nltk, swn, wn, word_tokenize, pos_tag])
+
+        # Majority voting across available labels
+        method_labels = {
+            'textblob': to_label(scores['textblob']) if tb_available else None,
+            'vader': to_label(scores['vader']) if vd_available else None,
+            'sentiwordnet': to_label(scores['sentiwordnet']) if swn_available else None,
+        }
+        votes = [lbl for lbl in method_labels.values() if lbl is not None]
+
+        # Fallback score: mean of available numeric scores
+        vals = [
+            v for k, v in scores.items()
+            if isinstance(v, (int, float)) and (
+                (k == 'textblob' and tb_available) or
+                (k == 'vader' and vd_available) or
+                (k == 'sentiwordnet' and swn_available)
+            )
+        ]
         score = sum(vals) / len(vals) if vals else 0.0
         score = max(-1.0, min(1.0, float(score)))
-        label = to_label(score)
+
+        if votes:
+            from collections import Counter
+            c = Counter(votes)
+            top = c.most_common()
+            if len(top) == 1 or (len(top) > 1 and top[0][1] > top[1][1]):
+                label = top[0][0]
+            else:
+                # tie: fallback to averaged score label
+                label = to_label(score)
+        else:
+            # no available methods: neutral fallback
+            label = to_label(score)
 
         out = Output(
             text_original=text,

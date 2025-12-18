@@ -48,7 +48,9 @@ export default function App() {
       }
 
       if (!res.ok) {
-        if (res.status === 401) {
+        if (res.status === 429) {
+          return { ok: false, error: data?.error || 'Terlalu banyak percobaan login. Coba lagi nanti.' };
+        } else if (res.status === 401) {
           return { ok: false, error: 'Username atau password salah' };
         } else if (res.status === 400) {
           return { ok: false, error: data?.error || 'Form login tidak valid' };

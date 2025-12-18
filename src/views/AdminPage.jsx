@@ -33,6 +33,9 @@ export default function AdminPage({ user, onLogout }) {
   const [users, setUsers] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [resources, setResources] = useState([]);
+  const [loginFails, setLoginFails] = useState([]);
+  const [loginFailSummary, setLoginFailSummary] = useState([]);
+  const [loginFailHours, setLoginFailHours] = useState(24);
   // Users: search term
   const [userSearch, setUserSearch] = useState('');
   // Audit: sort control
@@ -107,7 +110,7 @@ export default function AdminPage({ user, onLogout }) {
   // User management form state
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [userForm, setUserForm] = useState({ username: '', email: '', password: '', prodi: '', role: 'user' });
+  const [userForm, setUserForm] = useState({ username: '', nim: '', email: '', password: '', prodi: '', role: 'user' });
 
   useEffect(() => {
     // Check if user is properly authenticated
@@ -127,6 +130,8 @@ export default function AdminPage({ user, onLogout }) {
       fetchAuditLogs();
     } else if (activeTab === 'resources') {
       fetchResources();
+    } else if (activeTab === 'loginFailures') {
+      fetchLoginFailures(loginFailHours);
     }
   }, [activeTab, user]);
 
@@ -161,7 +166,6 @@ export default function AdminPage({ user, onLogout }) {
     if (!q) return users;
     return users.filter((u) =>
       normalized(u.username).includes(q) ||
-      normalized(u.email).includes(q) ||
       normalized(u.nim).includes(q) ||
       normalized(u.prodi).includes(q) ||
       normalized(u.role).includes(q)
@@ -257,6 +261,32 @@ export default function AdminPage({ user, onLogout }) {
     }
   };
 
+  const fetchLoginFailures = async (hours = 24) => {
+    try {
+      setLoading(true);
+      if (!user || !user.id_user) {
+        throw new Error('User not authenticated. Please login again.');
+      }
+      const res = await fetch(`${apiBase}/api/admin/login-failures?hours=${encodeURIComponent(hours)}&limit=200`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Failed to fetch login failures' }));
+        throw new Error(errorData.error || `HTTP ${res.status}: Failed to fetch login failures`);
+      }
+      const data = await res.json();
+      setLoginFails(data.logs || []);
+      setLoginFailSummary(data.summary || []);
+      setLoginFailHours(data.hours || hours);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching login failures:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleAddUser = async (e) => {
     e.preventDefault();
     try {
@@ -288,7 +318,7 @@ export default function AdminPage({ user, onLogout }) {
       const res = await fetch(`${apiBase}/api/admin/users/${editingUser.id_user}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
-        body: JSON.stringify({ ...userForm }),
+        body: JSON.stringify((() => { const { email, ...rest } = userForm; return rest; })()),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -490,6 +520,12 @@ export default function AdminPage({ user, onLogout }) {
             onClick={() => setActiveTab('resources')}
           >
             Pengaturan Sumber Daya
+          </button>
+          <button
+            className={activeTab === 'loginFailures' ? 'active' : ''}
+            onClick={() => setActiveTab('loginFailures')}
+          >
+            History Login
           </button>
         </nav>
 
@@ -762,7 +798,7 @@ export default function AdminPage({ user, onLogout }) {
               <div className="section-controls" style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 12 }}>
                 <input
                   type="text"
-                  placeholder="Cari user (username, email, NIM, prodi, role)"
+                  placeholder="Cari user (username, NIM, prodi, role)"
                   value={userSearch}
                   onChange={(e) => setUserSearch(e.target.value)}
                   style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 6, minWidth: 260 }}
@@ -792,14 +828,16 @@ export default function AdminPage({ user, onLogout }) {
                           required={!editingUser}
                         />
                       </div>
-                      <div className="form-group">
-                        <label>Email</label>
-                        <input
-                          type="email"
-                          value={userForm.email}
-                          onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
-                        />
-                      </div>
+                      {!editingUser && (
+                        <div className="form-group">
+                          <label>Email</label>
+                          <input
+                            type="email"
+                            value={userForm.email}
+                            onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
+                          />
+                        </div>
+                      )}
                       <div className="form-group">
                         <label>{editingUser ? 'Password (kosongkan jika tidak diubah)' : 'Password *'}</label>
                         <input
@@ -854,7 +892,7 @@ export default function AdminPage({ user, onLogout }) {
                     <th>ID</th>
                     <th>Username</th>
                     <th>NIM</th>
-                    <th>Email</th>
+                    
                     <th>Prodi</th>
                     <th>Role</th>
                     <th>Created At</th>
@@ -867,7 +905,6 @@ export default function AdminPage({ user, onLogout }) {
                       <td>{u.id_user}</td>
                       <td>{u.username}</td>
                       <td>{u.nim || '-'}</td>
-                      <td>{u.email}</td>
                       <td>{u.prodi || '-'}</td>
                       <td>
                         <span className={`role-badge ${u.role}`}>{u.role}</span>
@@ -1075,6 +1112,93 @@ export default function AdminPage({ user, onLogout }) {
               {resources.length === 0 && !loading && (
                 <p className="empty-message">Tidak ada dokumen yang tersimpan. Upload dokumen untuk memulai.</p>
               )}
+            </div>
+          )}
+
+          {activeTab === 'loginFailures' && (
+            <div className="audit-content">
+              <div className="section-header">
+                <h2>History Login (Gagal)</h2>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label htmlFor="lf-hours" style={{ color: '#475569' }}>Rentang Jam:</label>
+                  <select
+                    id="lf-hours"
+                    value={loginFailHours}
+                    onChange={(e) => { const h = parseInt(e.target.value); setLoginFailHours(h); fetchLoginFailures(h); }}
+                    style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 6 }}
+                  >
+                    <option value={6}>6 jam</option>
+                    <option value={12}>12 jam</option>
+                    <option value={24}>24 jam</option>
+                    <option value={72}>3 hari</option>
+                    <option value={168}>7 hari</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Ringkasan per jam */}
+              <div className="dashboard-section">
+                <h3>Ringkasan Per Jam</h3>
+                <p className="section-description">Jumlah percobaan login gagal per user per jam (terakhir {loginFailHours} jam)</p>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Jam</th>
+                      <th>User</th>
+                      <th>Gagal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loginFailSummary.map((row, idx) => (
+                      <tr key={idx}>
+                        <td>{new Date(row.hour).toLocaleString('id-ID')}</td>
+                        <td>{row.user_key}</td>
+                        <td><strong>{row.count}</strong> kali</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {loginFailSummary.length === 0 && !loading && (
+                  <p className="empty-message">Tidak ada data gagal login dalam rentang waktu ini.</p>
+                )}
+              </div>
+
+              {/* Daftar kejadian terbaru */}
+              <div className="dashboard-section" style={{ marginTop: 16 }}>
+                <h3>Daftar Terbaru</h3>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Waktu</th>
+                      <th>User</th>
+                      <th>Key</th>
+                      <th>IP</th>
+                      <th>User-Agent</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loginFails.map((l) => (
+                      <tr key={l.id}>
+                        <td>{new Date(l.created_at).toLocaleString('id-ID')}</td>
+                        <td>{l.username || l.key_id}</td>
+                        <td>{l.key_id}</td>
+                        <td>{l.ip_address || '-'}</td>
+                        <td className="details-cell">
+                          {l.user_agent ? (
+                            <details>
+                              <summary>Lihat</summary>
+                              <pre>{l.user_agent}</pre>
+                            </details>
+                          ) : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {loginFails.length === 0 && !loading && (
+                  <p className="empty-message">Belum ada percobaan login gagal terbaru.</p>
+                )}
+              </div>
             </div>
           )}
         </div>

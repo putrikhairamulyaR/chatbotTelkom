@@ -17,7 +17,7 @@ const INTENT_KEYWORDS = {
 };
 
 const POSITIVE = ['baik', 'bagus', 'bagus banget', 'terima kasih', 'terimakasih', 'makasih', 'thanks', 'thank you', 'ok', 'oke', 'okay', 'okey', 'okeyy', 'sip', 'sippp', 'siap', 'mantap', 'mantul', 'mantap jiwa', 'sangat baik', 'love', 'great', 'awesome', 'excellent', 'keren', 'top', 'nice', 'helpful', 'bermanfaat'];
-const NEGATIVE = ['nggak', 'ngga', 'gak', 'ga', 'enggak', 'tidak', 'tdk', 'gagal', 'error', 'buruk', 'buruk sekali', 'jelek', 'jelek banget', 'sulit', 'susah', 'lambat', 'lemot', 'lag', 'down', 'hang', 'crash', 'bug', 'buggy', 'fail', 'broken', 'parah', 'payah', 'mengecewakan', 'ribet', 'bingung', 'ga jelas', 'tidak jelas', 'kurang jelas', 'tidak membantu', 'ga membantu', 'tidak sesuai', 'salah', 'keliru', 'tidak akurat', 'kurang akurat', 'tidak tepat', 'kurang tepat', 'tidak memuaskan', 'kurang memuaskan', 'tidak puas', 'kurang puas', 'tidak cocok', 'kurang cocok', 'tidak berguna', 'ga berguna', 'tidak relevan', 'kurang relevan', 'tidak menjawab', 'ga menjawab', 'tidak menjawab pertanyaan', 'ga menjawab pertanyaan', 'jawabannya salah', 'jawaban salah', 'jawabannya tidak tepat', 'jawaban tidak tepat', 'jawabannya kurang jelas', 'jawaban kurang jelas'];
+const NEGATIVE = ['nggak', 'g','ngga', 'gak', 'ga', 'enggak', 'tidak', 'tdk', 'gagal', 'error', 'buruk', 'buruk sekali', 'jelek', 'jelek banget', 'sulit', 'susah', 'lambat', 'lemot', 'lag', 'down', 'hang', 'crash', 'bug', 'buggy', 'fail', 'broken', 'parah', 'payah', 'mengecewakan', 'ribet', 'bingung', 'ga jelas', 'tidak jelas', 'kurang jelas', 'tidak membantu', 'ga membantu', 'tidak sesuai', 'salah', 'keliru', 'tidak akurat', 'kurang akurat', 'tidak tepat', 'kurang tepat', 'tidak memuaskan', 'kurang memuaskan', 'tidak puas', 'kurang puas', 'tidak cocok', 'kurang cocok', 'tidak berguna', 'ga berguna', 'tidak relevan', 'kurang relevan', 'tidak menjawab', 'ga menjawab', 'tidak menjawab pertanyaan', 'ga menjawab pertanyaan', 'jawabannya salah', 'jawaban salah', 'jawabannya tidak tepat', 'jawaban tidak tepat', 'jawabannya kurang jelas', 'jawaban kurang jelas'];
 
 const USE_OPENAI_NLP = (process.env.NLP_USE_OPENAI || 'false').toLowerCase() === 'true';
 const USE_PY_SENTIMENT = (process.env.NLP_USE_PYTHON || 'false').toLowerCase() === 'true';
@@ -47,25 +47,58 @@ export function detectIntent(text) {
   const t = normalize(text);
   if (!t) return 'unknown';
 
-  // exact punctuation-based question heuristic
+  // Tokenize to avoid substring false positives (e.g., 'tidak' inside a longer word)
+  const tokens = (t.match(/[a-z0-9]+/gi) || []).map((w) => w.toLowerCase());
+  const hasToken = (w) => tokens.includes(w.toLowerCase());
+
+  // exact punctuation-based question heuristic comes first
   if (t.includes('?')) return 'question';
 
-  // praise -> kepuasan (only if not a question)
-  for (const p of POSITIVE) {
-    if (t.includes(p)) return 'kepuasan';
+  // Scoring-based keyword matching with clear priorities
+  const priorities = ['complaint', 'ask_document', 'feedback', 'greeting', 'goodbye'];
+  const scores = Object.fromEntries(Object.keys(INTENT_KEYWORDS).map((k) => [k, 0]));
+
+  const countHit = (key) => {
+    const k = key.toLowerCase().trim();
+    if (!k) return 0;
+    // Multi-word or phrase: use substring check
+    if (k.includes(' ') || /[^a-z0-9]/i.test(k)) return t.includes(k) ? 1 : 0;
+    // Single word: token-based exact match
+    return hasToken(k) ? 1 : 0;
+  };
+
+  for (const [intent, keys] of Object.entries(INTENT_KEYWORDS)) {
+    let s = 0;
+    for (const k of keys) s += countHit(k);
+    scores[intent] = s;
   }
 
-  // keyword match
-  for (const [intent, keys] of Object.entries(INTENT_KEYWORDS)) {
-    for (const k of keys) {
-      if (t.includes(k)) return intent;
+  // praise -> kepuasan (only if not a question)
+  let isPraise = false;
+  for (const p of POSITIVE) {
+    if ((p.includes(' ') && t.includes(p)) || (!p.includes(' ') && hasToken(p))) {
+      isPraise = true;
+      break;
     }
   }
 
-  // short heuristics
-  if (t.split(' ').length <= 2) {
-    return 'short_statement';
+  // Pick the highest-scoring intent with tie-breakers by priority
+  let best = { intent: 'unknown', score: 0 };
+  for (const intent of priorities) {
+    const sc = scores[intent] || 0;
+    if (sc > 0 && (sc > best.score || (sc === best.score && best.intent === 'unknown'))) {
+      best = { intent, score: sc };
+    }
   }
+
+  if (best.intent !== 'unknown') return best.intent;
+
+  // short heuristics
+  if (tokens.length <= 2) return 'short_statement';
+
+  // fallback: kepuasan if praise terms appear
+  if (isPraise) return 'kepuasan';
+
   return 'unknown';
 }
 
@@ -81,7 +114,7 @@ export function analyzeSentiment(text) {
   if (score > 0) score = Math.min(1, score / 3);
   else if (score < 0) score = Math.max(-1, score / 3);
 
-  const label = score > 0.15 ? 'positive' : score < -0.15 ? 'negative' : 'neutral';
+  const label = score > 0 ? 'positive' : score < -0.15 ? 'negative' : 'neutral';
   return { score, label };
 }
 

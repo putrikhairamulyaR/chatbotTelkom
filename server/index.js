@@ -176,6 +176,52 @@ async function ensureUserNimColumn() {
 
 await ensureUserNimColumn();
 
+// Helper: Ensure login_throttle table exists
+async function ensureLoginThrottleTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS \`login_throttle\` (
+        \`key_id\` VARCHAR(200) PRIMARY KEY,
+        fail_count INT NOT NULL DEFAULT 0,
+        last_fail TIMESTAMP NULL DEFAULT NULL,
+        locked_until TIMESTAMP NULL DEFAULT NULL,
+        user_id INT NULL,
+        email VARCHAR(255) NULL,
+        INDEX (locked_until),
+        INDEX (user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log('[init] ✓ login_throttle table verified');
+  } catch (err) {
+    console.warn('[init] Could not ensure login_throttle table:', err?.message);
+  }
+}
+
+await ensureLoginThrottleTable();
+
+// Helper: Ensure login_fail_log table exists
+async function ensureLoginFailLogTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS \`login_fail_log\` (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        key_id VARCHAR(200) NOT NULL,
+        user_id INT NULL,
+        ip_address VARCHAR(45) NULL,
+        user_agent TEXT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX (created_at),
+        INDEX (user_id),
+        FOREIGN KEY (user_id) REFERENCES \`user\`(id_user) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log('[init] ✓ login_fail_log table verified');
+  } catch (err) {
+    console.warn('[init] Could not ensure login_fail_log table:', err?.message);
+  }
+}
+
+await ensureLoginFailLogTable();
 /* -------------------- Statistics router -------------------- */
 const statsMod = await import('./routes/statistics.js');
 const statsRouter = statsMod && (statsMod.default || statsMod);

@@ -585,7 +585,7 @@ router.get('/users', async (req, res) => {
   try {
     const id_user = req.user?.id_user;
     const [rows] = await pool.query(
-      'SELECT id_user, username, nim, email, prodi, role, created_at FROM `user` ORDER BY created_at DESC'
+      'SELECT id_user, username, nim, prodi, role, created_at FROM `user` ORDER BY created_at DESC'
     );
     await logAudit(id_user, 'LIST_USERS', 'user', null, {}, req.ip, req.get('user-agent'));
     return res.json({ users: rows });
@@ -674,16 +674,7 @@ router.put('/users/:id', async (req, res) => {
     }
 
     if (email !== undefined) {
-      // Check if email already taken by another user
-      const [check] = await pool.query(
-        'SELECT id_user FROM `user` WHERE email = ? AND id_user != ?',
-        [email, targetId]
-      );
-      if (check.length > 0) {
-        return res.status(400).json({ error: 'Email already taken' });
-      }
-      updates.push('email = ?');
-      values.push(email);
+      return res.status(400).json({ error: 'Email tidak dapat diubah' });
     }
 
     if (password !== undefined && password.trim()) {
@@ -792,6 +783,44 @@ router.get('/audit-log', async (req, res) => {
     return res.json({ logs, total, limit, offset });
   } catch (err) {
     console.error('[admin] Audit log error:', err);
+    return res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+/* ==================== LOGIN FAILURES ==================== */
+// GET /api/admin/login-failures - recent failed login attempts + summary
+router.get('/login-failures', async (req, res) => {
+  try {
+    const id_user = req.user?.id_user;
+    const limit = Math.min(parseInt(req.query.limit || '200'), 1000);
+    const hours = Math.min(Math.max(parseInt(req.query.hours || '24'), 1), 720); // 1..720 hours
+
+    const [logs] = await pool.query(
+      `SELECT l.id, l.created_at, l.key_id, l.ip_address, l.user_agent, l.user_id,
+              u.username
+         FROM login_fail_log l
+    LEFT JOIN \`user\` u ON u.id_user = l.user_id
+        ORDER BY l.created_at DESC
+        LIMIT ?`,
+      [limit]
+    );
+
+    const [summary] = await pool.query(
+      `SELECT COALESCE(u.username, l.key_id) AS user_key,
+              DATE_FORMAT(l.created_at, '%Y-%m-%d %H:00:00') AS hour,
+              COUNT(*) AS count
+         FROM login_fail_log l
+    LEFT JOIN \`user\` u ON u.id_user = l.user_id
+        WHERE l.created_at >= (NOW() - INTERVAL ? HOUR)
+     GROUP BY user_key, hour
+     ORDER BY hour DESC, user_key ASC`,
+      [hours]
+    );
+
+    await logAudit(id_user, 'LIST_LOGIN_FAILURES', 'login_fail_log', null, { limit, hours }, req.ip, req.get('user-agent'));
+    return res.json({ logs, summary, hours });
+  } catch (err) {
+    console.error('[admin] Login failures error:', err);
     return res.status(500).json({ error: String(err?.message || err) });
   }
 });

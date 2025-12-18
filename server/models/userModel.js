@@ -21,7 +21,7 @@ export async function createUser({ username, email, password, prodi, role = 'use
 }
 
 export async function updateUserByUsername(username, fields) {
-  const allowed = ['password', 'role', 'email', 'prodi'];
+  const allowed = ['password', 'role', 'prodi'];
   const keys = Object.keys(fields).filter(k => allowed.includes(k));
   if (!keys.length) return 0;
   const setSql = keys.map(k => `${k} = ?`).join(', ');
