@@ -127,6 +127,8 @@ export default function AdminPage({ user, onLogout }) {
     } else if (activeTab === 'audit') {
       fetchAuditLogs();
       fetchLoginLocks();
+    } else if (activeTab === 'login-locks') {
+      fetchLoginLocks();
     } else if (activeTab === 'resources') {
       fetchResources();
     }
@@ -513,6 +515,12 @@ export default function AdminPage({ user, onLogout }) {
             onClick={() => setActiveTab('resources')}
           >
             Pengaturan Sumber Daya
+          </button>
+          <button
+            className={activeTab === 'login-locks' ? 'active' : ''}
+            onClick={() => setActiveTab('login-locks')}
+          >
+            Status Login Lock
           </button>
           <div className="user-area">
             <div
@@ -993,42 +1001,46 @@ export default function AdminPage({ user, onLogout }) {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
 
-              <div style={{ marginTop: 24 }}>
-                <h3>Status Login Lock (Throttle)</h3>
-                <p style={{ marginTop: 4, color: '#64748b' }}>
-                  Menampilkan pengguna yang mencapai batas percobaan login. Jika terkunci, kolom "Remaining" menunjukkan sisa menit.
-                </p>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>User</th>
-                      <th>Key</th>
-                      <th>Fail Count</th>
-                      <th>Last Fail</th>
-                      <th>Locked Until</th>
-                      <th>Remaining (min)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loginLocks.map((l, idx) => (
-                      <tr key={idx}>
-                        <td>{l.username || l.key_id || l.user_id || '-'}</td>
-                        <td>{l.email || '-'}</td>
-                        <td>{l.fail_count}</td>
-                        <td>{l.last_fail ? new Date(l.last_fail).toLocaleString('id-ID') : '-'}</td>
-                        <td>{l.locked_until ? new Date(l.locked_until).toLocaleString('id-ID') : '-'}</td>
-                        <td>{l.minutes_remaining || 0}</td>
-                      </tr>
-                    ))}
-                    {loginLocks.length === 0 && (
-                      <tr>
-                        <td colSpan={6} style={{ textAlign: 'center', color: '#64748b' }}>Tidak ada data lock saat ini</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+          {activeTab === 'login-locks' && (
+            <div className="login-locks-content">
+              <div className="section-header">
+                <h2>Status Login Lock (Throttle)</h2>
               </div>
+              <p style={{ marginTop: 4, color: '#64748b' }}>
+                Menampilkan pengguna yang mencapai batas percobaan login. Jika terkunci, kolom "Remaining" menunjukkan sisa menit.
+              </p>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Key</th>
+                    <th>Fail Count</th>
+                    <th>Last Fail</th>
+                    <th>Locked Until</th>
+                    <th>Remaining (min)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loginLocks.map((l, idx) => (
+                    <tr key={idx}>
+                      <td>{l.username || l.key_id || l.user_id || '-'}</td>
+                      <td>{l.email || '-'}</td>
+                      <td>{l.fail_count}</td>
+                      <td>{l.last_fail ? new Date(l.last_fail).toLocaleString('id-ID') : '-'}</td>
+                      <td>{l.locked_until ? new Date(l.locked_until).toLocaleString('id-ID') : '-'}</td>
+                      <td>{l.minutes_remaining || 0}</td>
+                    </tr>
+                  ))}
+                  {loginLocks.length === 0 && (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', color: '#64748b' }}>Tidak ada data lock saat ini</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           )}
 
