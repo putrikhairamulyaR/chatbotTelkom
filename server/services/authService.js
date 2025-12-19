@@ -46,7 +46,7 @@ export async function login(payload, meta = {}) {
   const field = usernameTrim ? 'username' : 'email';
   const user = await getUserByField(field, idValue);
 
-  // Throttle/lock check (5 gagal berturut-turut -> jeda 10 menit)
+  // Throttle/lock check: >=3 gagal -> 10 menit, >5 gagal -> 1 jam
   const key = String(idValue || '').toLowerCase();
   const now = new Date();
   try {
@@ -85,7 +85,10 @@ export async function login(payload, meta = {}) {
       const fc = (row && row[0] && row[0].fail_count) || 0;
       const next = fc + 1;
       let lockedUntil = null;
-      if (next >= 5) {
+      // Tiered lock: >=3 -> 10 menit, >5 -> 1 jam
+      if (next > 5) {
+        lockedUntil = new Date(Date.now() + 60 * 60 * 1000); // 1 jam
+      } else if (next >= 3) {
         lockedUntil = new Date(Date.now() + 10 * 60 * 1000); // 10 menit
       }
       await pool.query('UPDATE login_throttle SET fail_count = ?, last_fail = NOW(), locked_until = ? WHERE `key_id` = ?', [
@@ -135,8 +138,11 @@ export async function login(payload, meta = {}) {
       const fc = (rows && rows[0] && rows[0].fail_count) || 0;
       const next = fc + 1;
       let lockedUntil = null;
-      if (next >= 5) {
-        lockedUntil = new Date(Date.now() + 10 * 60 * 1000);
+      // Tiered lock: >=3 -> 10 menit, >5 -> 1 jam
+      if (next > 5) {
+        lockedUntil = new Date(Date.now() + 60 * 60 * 1000); // 1 jam
+      } else if (next >= 3) {
+        lockedUntil = new Date(Date.now() + 10 * 60 * 1000); // 10 menit
       }
       await pool.query('UPDATE login_throttle SET fail_count = ?, last_fail = NOW(), locked_until = ?, user_id = COALESCE(user_id, ?), email = COALESCE(email, ?) WHERE `key_id` = ?', [
         next,

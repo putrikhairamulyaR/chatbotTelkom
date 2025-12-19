@@ -825,6 +825,49 @@ router.get('/login-failures', async (req, res) => {
   }
 });
 
+/* ==================== LOGIN LOCKS (Throttle Status) ==================== */
+// GET /api/admin/login-locks - current throttle/lock status per key_id
+router.get('/login-locks', async (req, res) => {
+  try {
+    const id_user = req.user?.id_user;
+    const limit = Math.min(parseInt(req.query.limit || '200'), 1000);
+
+    const [rows] = await pool.query(
+      `SELECT lt.key_id, lt.fail_count, lt.last_fail, lt.locked_until, lt.user_id, lt.email,
+              u.username
+         FROM login_throttle lt
+    LEFT JOIN \`user\` u ON u.id_user = lt.user_id
+        ORDER BY lt.last_fail DESC, lt.fail_count DESC
+        LIMIT ?`,
+      [limit]
+    );
+
+    const now = Date.now();
+    const locks = rows.map(r => {
+      const lockedUntilMs = r.locked_until ? new Date(r.locked_until).getTime() : null;
+      const minutes_remaining = lockedUntilMs && lockedUntilMs > now
+        ? Math.ceil((lockedUntilMs - now) / 60000)
+        : 0;
+      return {
+        key_id: r.key_id,
+        user_id: r.user_id,
+        username: r.username || null,
+        email: r.email || null,
+        fail_count: r.fail_count,
+        last_fail: r.last_fail,
+        locked_until: r.locked_until,
+        minutes_remaining,
+      };
+    });
+
+    await logAudit(id_user, 'LIST_LOGIN_LOCKS', 'login_throttle', null, { limit }, req.ip, req.get('user-agent'));
+    return res.json({ locks });
+  } catch (err) {
+    console.error('[admin] Login locks error:', err);
+    return res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
 /* ==================== RESOURCE MANAGEMENT (Qdrant Documents) ==================== */
 
 // GET /api/admin/resources - List all documents (both in Qdrant and data folder)

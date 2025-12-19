@@ -56,7 +56,7 @@ export default function LoginPage({ onSubmit }) {
 
           <p className="desc">
             Sistem layanan informasi akademik berbasis chatbot
-            untuk Dosen dan Mahasiswa Telkom University.
+            untuk Mahasiswa Telkom University.
           </p>
         </div>
       </div>

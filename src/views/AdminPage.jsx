@@ -32,10 +32,8 @@ export default function AdminPage({ user, onLogout }) {
   const [dashboard, setDashboard] = useState(null);
   const [users, setUsers] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [loginLocks, setLoginLocks] = useState([]);
   const [resources, setResources] = useState([]);
-  const [loginFails, setLoginFails] = useState([]);
-  const [loginFailSummary, setLoginFailSummary] = useState([]);
-  const [loginFailHours, setLoginFailHours] = useState(24);
   // Users: search term
   const [userSearch, setUserSearch] = useState('');
   // Audit: sort control
@@ -110,7 +108,7 @@ export default function AdminPage({ user, onLogout }) {
   // User management form state
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [userForm, setUserForm] = useState({ username: '', nim: '', email: '', password: '', prodi: '', role: 'user' });
+  const [userForm, setUserForm] = useState({ username: '', email: '', password: '', prodi: '', role: 'user' });
 
   useEffect(() => {
     // Check if user is properly authenticated
@@ -128,10 +126,9 @@ export default function AdminPage({ user, onLogout }) {
       fetchUsers();
     } else if (activeTab === 'audit') {
       fetchAuditLogs();
+      fetchLoginLocks();
     } else if (activeTab === 'resources') {
       fetchResources();
-    } else if (activeTab === 'loginFailures') {
-      fetchLoginFailures(loginFailHours);
     }
   }, [activeTab, user]);
 
@@ -166,6 +163,7 @@ export default function AdminPage({ user, onLogout }) {
     if (!q) return users;
     return users.filter((u) =>
       normalized(u.username).includes(q) ||
+      normalized(u.email).includes(q) ||
       normalized(u.nim).includes(q) ||
       normalized(u.prodi).includes(q) ||
       normalized(u.role).includes(q)
@@ -237,6 +235,30 @@ export default function AdminPage({ user, onLogout }) {
     }
   };
 
+  const fetchLoginLocks = async () => {
+    try {
+      setLoading(true);
+      if (!user || !user.id_user) {
+        throw new Error('User not authenticated. Please login again.');
+      }
+      const res = await fetch(`${apiBase}/api/admin/login-locks?limit=200`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Failed to fetch login locks' }));
+        throw new Error(errorData.error || `HTTP ${res.status}: Failed to fetch login locks`);
+      }
+      const data = await res.json();
+      setLoginLocks(data.locks || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching login locks:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const fetchResources = async () => {
     try {
       setLoading(true);
@@ -255,32 +277,6 @@ export default function AdminPage({ user, onLogout }) {
       setError(null);
     } catch (err) {
       console.error('Error fetching resources:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchLoginFailures = async (hours = 24) => {
-    try {
-      setLoading(true);
-      if (!user || !user.id_user) {
-        throw new Error('User not authenticated. Please login again.');
-      }
-      const res = await fetch(`${apiBase}/api/admin/login-failures?hours=${encodeURIComponent(hours)}&limit=200`, {
-        headers: { Authorization: `Bearer ${user.token}` },
-      });
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ error: 'Failed to fetch login failures' }));
-        throw new Error(errorData.error || `HTTP ${res.status}: Failed to fetch login failures`);
-      }
-      const data = await res.json();
-      setLoginFails(data.logs || []);
-      setLoginFailSummary(data.summary || []);
-      setLoginFailHours(data.hours || hours);
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching login failures:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -318,7 +314,7 @@ export default function AdminPage({ user, onLogout }) {
       const res = await fetch(`${apiBase}/api/admin/users/${editingUser.id_user}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
-        body: JSON.stringify((() => { const { email, ...rest } = userForm; return rest; })()),
+        body: JSON.stringify({ ...userForm }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -520,12 +516,6 @@ export default function AdminPage({ user, onLogout }) {
             onClick={() => setActiveTab('resources')}
           >
             Pengaturan Sumber Daya
-          </button>
-          <button
-            className={activeTab === 'loginFailures' ? 'active' : ''}
-            onClick={() => setActiveTab('loginFailures')}
-          >
-            History Login
           </button>
         </nav>
 
@@ -798,7 +788,7 @@ export default function AdminPage({ user, onLogout }) {
               <div className="section-controls" style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 12 }}>
                 <input
                   type="text"
-                  placeholder="Cari user (username, NIM, prodi, role)"
+                  placeholder="Cari user (username, email, NIM, prodi, role)"
                   value={userSearch}
                   onChange={(e) => setUserSearch(e.target.value)}
                   style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 6, minWidth: 260 }}
@@ -828,16 +818,14 @@ export default function AdminPage({ user, onLogout }) {
                           required={!editingUser}
                         />
                       </div>
-                      {!editingUser && (
-                        <div className="form-group">
-                          <label>Email</label>
-                          <input
-                            type="email"
-                            value={userForm.email}
-                            onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
-                          />
-                        </div>
-                      )}
+                      <div className="form-group">
+                        <label>Email</label>
+                        <input
+                          type="email"
+                          value={userForm.email}
+                          onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
+                        />
+                      </div>
                       <div className="form-group">
                         <label>{editingUser ? 'Password (kosongkan jika tidak diubah)' : 'Password *'}</label>
                         <input
@@ -892,7 +880,7 @@ export default function AdminPage({ user, onLogout }) {
                     <th>ID</th>
                     <th>Username</th>
                     <th>NIM</th>
-                    
+                    <th>Email</th>
                     <th>Prodi</th>
                     <th>Role</th>
                     <th>Created At</th>
@@ -905,6 +893,7 @@ export default function AdminPage({ user, onLogout }) {
                       <td>{u.id_user}</td>
                       <td>{u.username}</td>
                       <td>{u.nim || '-'}</td>
+                      <td>{u.email}</td>
                       <td>{u.prodi || '-'}</td>
                       <td>
                         <span className={`role-badge ${u.role}`}>{u.role}</span>
@@ -982,6 +971,42 @@ export default function AdminPage({ user, onLogout }) {
                   ))}
                 </tbody>
               </table>
+
+              <div style={{ marginTop: 24 }}>
+                <h3>Status Login Lock (Throttle)</h3>
+                <p style={{ marginTop: 4, color: '#64748b' }}>
+                  Menampilkan pengguna yang mencapai batas percobaan login. Jika terkunci, kolom "Remaining" menunjukkan sisa menit.
+                </p>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>User</th>
+                      <th>Key</th>
+                      <th>Fail Count</th>
+                      <th>Last Fail</th>
+                      <th>Locked Until</th>
+                      <th>Remaining (min)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loginLocks.map((l, idx) => (
+                      <tr key={idx}>
+                        <td>{l.username || l.key_id || l.user_id || '-'}</td>
+                        <td>{l.email || '-'}</td>
+                        <td>{l.fail_count}</td>
+                        <td>{l.last_fail ? new Date(l.last_fail).toLocaleString('id-ID') : '-'}</td>
+                        <td>{l.locked_until ? new Date(l.locked_until).toLocaleString('id-ID') : '-'}</td>
+                        <td>{l.minutes_remaining || 0}</td>
+                      </tr>
+                    ))}
+                    {loginLocks.length === 0 && (
+                      <tr>
+                        <td colSpan={6} style={{ textAlign: 'center', color: '#64748b' }}>Tidak ada data lock saat ini</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
@@ -989,70 +1014,93 @@ export default function AdminPage({ user, onLogout }) {
             <div className="resources-content">
               <div className="section-header">
                 <h2>Pengaturan Sumber Daya</h2>
-                <button className="btn-primary" onClick={() => setShowUploadPanel(v => !v)}>
-                  {showUploadPanel ? 'Tutup Form Upload' : '+ Upload Dokumen'}
+                <button className="btn-primary" onClick={() => setShowUploadPanel(true)}>
+                  + Upload Dokumen
                 </button>
               </div>
 
               {showUploadPanel && (
-                <div className="upload-panel" style={{ marginTop: 12, padding: 16, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                  <div
-                    className="upload-drop"
-                    style={{
-                      border: '2px dashed #cbd5e1',
-                      borderRadius: 10,
-                      padding: 20,
-                      background: '#ffffff',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 16,
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => document.getElementById('file-input-hidden')?.click()}
-                  >
-                    <div style={{ fontSize: 28 }}>⬆️</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600 }}>Pilih dokumen untuk diupload</div>
-                      <div style={{ color: '#64748b', fontSize: 13 }}>Format: PDF, TXT, MD</div>
-                      {selectedFile && (
-                        <div style={{ marginTop: 6, color: '#111827' }}>Dipilih: {selectedFile.name}</div>
-                      )}
-                    </div>
-                    <label className="btn-primary" style={{ padding: '8px 12px' }}>
-                      <input
-                        id="file-input-hidden"
-                        type="file"
-                        accept=".pdf,.txt,.md"
-                        onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                        disabled={uploading}
-                        style={{ display: 'none' }}
-                      />
-                      Pilih File
-                    </label>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginTop: 12 }}>
-                    <input
-                      type="text"
-                      placeholder="Topik (opsional)"
-                      value={uploadTopic}
-                      onChange={(e) => setUploadTopic(e.target.value)}
-                      style={{ padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 6 }}
-                    />
-                    <input
-                      type="text"
-                      placeholder="Sub Topik (opsional)"
-                      value={uploadSubtopic}
-                      onChange={(e) => setUploadSubtopic(e.target.value)}
-                      style={{ padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 6 }}
-                    />
-                    <button
-                      className="btn-primary"
-                      onClick={handleSubmitUpload}
-                      disabled={uploading || !selectedFile}
+                <div className="modal-overlay" onClick={() => setShowUploadPanel(false)}>
+                  <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                    <h3>Upload Dokumen Baru</h3>
+                    <div
+                      className="upload-drop"
+                      style={{
+                        border: '2px dashed #cbd5e1',
+                        borderRadius: 10,
+                        padding: 20,
+                        background: '#f8fafc',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 16,
+                        cursor: 'pointer',
+                        marginBottom: 16,
+                      }}
+                      onClick={() => document.getElementById('file-input-hidden')?.click()}
                     >
-                      {uploading ? 'Mengunggah...' : 'Upload'}
-                    </button>
+                      <div style={{ fontSize: 32 }}>📄</div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontWeight: 600, color: '#111827' }}>Pilih dokumen untuk diupload</div>
+                        <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>Format: PDF, TXT, MD</div>
+                        {selectedFile && (
+                          <div style={{ marginTop: 8, color: '#2563eb', fontWeight: 500 }}>✓ Dipilih: {selectedFile.name}</div>
+                        )}
+                      </div>
+                      <label className="btn-primary" style={{ padding: '8px 16px', marginBottom: 0 }}>
+                        <input
+                          id="file-input-hidden"
+                          type="file"
+                          accept=".pdf,.txt,.md"
+                          onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                          disabled={uploading}
+                          style={{ display: 'none' }}
+                        />
+                        Pilih File
+                      </label>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Topik (opsional)</label>
+                      <input
+                        type="text"
+                        placeholder="Masukkan topik dokumen"
+                        value={uploadTopic}
+                        onChange={(e) => setUploadTopic(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Sub Topik (opsional)</label>
+                      <input
+                        type="text"
+                        placeholder="Masukkan sub topik dokumen"
+                        value={uploadSubtopic}
+                        onChange={(e) => setUploadSubtopic(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="form-actions">
+                      <button
+                        className="btn-primary"
+                        onClick={handleSubmitUpload}
+                        disabled={uploading || !selectedFile}
+                      >
+                        {uploading ? 'Mengunggah...' : 'Upload'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => {
+                          setShowUploadPanel(false);
+                          setSelectedFile(null);
+                          setUploadTopic('');
+                          setUploadSubtopic('');
+                        }}
+                        disabled={uploading}
+                      >
+                        Batal
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1114,93 +1162,6 @@ export default function AdminPage({ user, onLogout }) {
               )}
             </div>
           )}
-
-          {activeTab === 'loginFailures' && (
-            <div className="audit-content">
-              <div className="section-header">
-                <h2>History Login (Gagal)</h2>
-                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label htmlFor="lf-hours" style={{ color: '#475569' }}>Rentang Jam:</label>
-                  <select
-                    id="lf-hours"
-                    value={loginFailHours}
-                    onChange={(e) => { const h = parseInt(e.target.value); setLoginFailHours(h); fetchLoginFailures(h); }}
-                    style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 6 }}
-                  >
-                    <option value={6}>6 jam</option>
-                    <option value={12}>12 jam</option>
-                    <option value={24}>24 jam</option>
-                    <option value={72}>3 hari</option>
-                    <option value={168}>7 hari</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Ringkasan per jam */}
-              <div className="dashboard-section">
-                <h3>Ringkasan Per Jam</h3>
-                <p className="section-description">Jumlah percobaan login gagal per user per jam (terakhir {loginFailHours} jam)</p>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Jam</th>
-                      <th>User</th>
-                      <th>Gagal</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loginFailSummary.map((row, idx) => (
-                      <tr key={idx}>
-                        <td>{new Date(row.hour).toLocaleString('id-ID')}</td>
-                        <td>{row.user_key}</td>
-                        <td><strong>{row.count}</strong> kali</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {loginFailSummary.length === 0 && !loading && (
-                  <p className="empty-message">Tidak ada data gagal login dalam rentang waktu ini.</p>
-                )}
-              </div>
-
-              {/* Daftar kejadian terbaru */}
-              <div className="dashboard-section" style={{ marginTop: 16 }}>
-                <h3>Daftar Terbaru</h3>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Waktu</th>
-                      <th>User</th>
-                      <th>Key</th>
-                      <th>IP</th>
-                      <th>User-Agent</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loginFails.map((l) => (
-                      <tr key={l.id}>
-                        <td>{new Date(l.created_at).toLocaleString('id-ID')}</td>
-                        <td>{l.username || l.key_id}</td>
-                        <td>{l.key_id}</td>
-                        <td>{l.ip_address || '-'}</td>
-                        <td className="details-cell">
-                          {l.user_agent ? (
-                            <details>
-                              <summary>Lihat</summary>
-                              <pre>{l.user_agent}</pre>
-                            </details>
-                          ) : '-'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {loginFails.length === 0 && !loading && (
-                  <p className="empty-message">Belum ada percobaan login gagal terbaru.</p>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -1233,4 +1194,3 @@ export default function AdminPage({ user, onLogout }) {
     )}
   </>);
 }
-

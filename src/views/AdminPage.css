@@ -1,10 +1,16 @@
+
 .admin-container {
   min-height: 100vh;
   background: #f7f8fb;
   font-family: Arial, Helvetica, sans-serif;
+  padding-top: 70px; /* account for fixed header */
 }
 
 .admin-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
   background: #fff;
   padding: 18px 24px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
@@ -12,6 +18,7 @@
   justify-content: space-between;
   align-items: center;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  z-index: 50;
 }
 
 .admin-header h1 {
@@ -25,12 +32,22 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  position: relative;
 }
 
 .user-info {
   color: #666;
   font-size: 14px;
 }
+
+/* Profile dropdown to mirror ChatPage */
+.admin-header-right .user-area{position:relative}
+.admin-header-right .user-info{display:flex;align-items:center;gap:8px;cursor:pointer;color:#374151}
+.admin-header-right .avatar{width:32px;height:32px;border-radius:50%;background:#AE2E31;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:600}
+.admin-header-right .profile-name{font-size:14px;font-weight:500}
+.admin-header-right .dropdown-icon{margin-left:6px;font-size:12px;opacity:.8}
+.admin-header-right .profile-menu{position:absolute;top:100%;right:0;background:#fff;color:#111;border-radius:6px;padding:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);display:flex;flex-direction:column;gap:6px;min-width:140px;margin-top:8px;z-index:100}
+.admin-header-right .profile-menu .logout-btn{width:100%;text-align:left;padding:6px 10px;border-radius:4px}
 
 .logout-btn {
   background: #dc2626;
@@ -49,17 +66,28 @@
 
 .admin-content {
   display: flex;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 24px;
-  gap: 24px;
+  max-width: none;
+  margin: 0;
+  margin-left: 260px;
+  padding: 0; /* remove all padding to sit flush */
+  gap: 0; /* remove gap */
 }
 
 .admin-nav {
+  position: fixed;
+  left: 0;
+  top: 70px; /* below header */
+  bottom: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 220px;
+  width: 260px;
+  height: calc(100vh - 70px); /* full height minus header */
+  background: #fff;
+  padding: 20px;
+  border-right: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  overflow-y: auto; /* allow nav items to scroll if needed */
 }
 
 .admin-nav button {
@@ -76,14 +104,24 @@
 
 .admin-nav button:hover {
   background: #f9fafb;
-  border-color: #2563eb;
+  border-color: #AE2E31;
 }
 
 .admin-nav button.active {
-  background: #2563eb;
+  background: #AE2E31;
   color: #fff;
-  border-color: #2563eb;
+  border-color: #AE2E31;
 }
+
+/* User area at bottom of left nav, like ChatPage */
+.admin-nav .user-area{margin-top:auto;position:relative}
+.admin-nav .user-info{display:flex;align-items:center;cursor:pointer;color:#374151}
+.admin-nav .avatar{width:34px;height:34px;border-radius:50%;background:#AE2E31;color:#fff;display:inline-flex;align-items:center;justify-content:center;margin-right:8px;font-weight:600}
+.admin-nav .profile-name{font-size:13px}
+.admin-nav .dropdown-icon{margin-left:6px;font-size:12px;opacity:.8}
+.admin-nav .profile-menu{position:absolute;bottom:54px;left:10px;background:#fff;color:#111;border-radius:6px;padding:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);display:flex;flex-direction:column;gap:6px;min-width:140px}
+.admin-nav .profile-menu .logout-btn{background:#ef4444;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;width:100%}
+.admin-nav .profile-menu .logout-btn:hover{background:#dc2626}
 
 .admin-main {
   flex: 1;
@@ -135,9 +173,9 @@
 }
 
 .stat-card.highlight {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #AE2E31 0%, #EC3237 100%);
   color: #fff;
-  border-color: #667eea;
+  border-color: #AE2E31;
 }
 
 .stat-card.highlight h3,
@@ -168,9 +206,8 @@
   font-size: 12px;
   color: rgba(255, 255, 255, 0.8);
   font-weight: 400;
-}
-
-.dashboard-section {
+} 
+ .dashboard-section {
   margin-top: 32px;
   padding-top: 32px;
   border-top: 1px solid #e5e7eb;
@@ -231,14 +268,14 @@
 }
 
 .hourly-bar.peak {
-  background: rgba(37, 99, 235, 0.1);
+  background: rgba(174, 46, 49, 0.1);
   border-radius: 4px;
   padding: 4px;
 }
 
 .hourly-bar-fill {
   width: 100%;
-  background: linear-gradient(to top, #3b82f6, #60a5fa);
+  background: linear-gradient(to top, #AE2E31, #EC3237);
   border-radius: 4px 4px 0 0;
   min-height: 20px;
   position: relative;
@@ -246,8 +283,8 @@
 }
 
 .hourly-bar.peak .hourly-bar-fill {
-  background: linear-gradient(to top, #2563eb, #3b82f6);
-  box-shadow: 0 0 8px rgba(37, 99, 235, 0.4);
+  background: linear-gradient(to top, #8F1F22, #AE2E31);
+  box-shadow: 0 0 8px rgba(174, 46, 49, 0.4);
 }
 
 .hourly-count {
@@ -293,7 +330,7 @@
 .topic-rank {
   font-size: 18px;
   font-weight: 700;
-  color: #2563eb;
+  color: #AE2E31;
   min-width: 40px;
   text-align: center;
 }
@@ -324,7 +361,7 @@
 
 .topic-bar-fill {
   height: 100%;
-  background: linear-gradient(to right, #3b82f6, #60a5fa);
+  background: linear-gradient(to right, #AE2E31, #EC3237);
   border-radius: 4px;
   transition: width 0.3s;
 }
@@ -332,7 +369,7 @@
 .rank-badge {
   display: inline-block;
   padding: 4px 8px;
-  background: #2563eb;
+  background: #AE2E31;
   color: #fff;
   border-radius: 4px;
   font-size: 12px;
@@ -379,7 +416,7 @@
 
 /* Buttons */
 .btn-primary {
-  background: #2563eb;
+  background: #AE2E31;
   color: #fff;
   border: none;
   padding: 8px 16px;
@@ -390,7 +427,7 @@
 }
 
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: #8F1F22;
 }
 
 .btn-secondary {
@@ -406,8 +443,7 @@
 
 .btn-secondary:hover {
   background: #4b5563;
-}
-
+} 
 .btn-edit {
   background: #059669;
   color: #fff;
@@ -518,8 +554,8 @@
 .form-group input:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: #AE2E31;
+  box-shadow: 0 0 0 3px rgba(174, 46, 49, 0.1);
 }
 
 .form-actions {
@@ -538,8 +574,8 @@
 }
 
 .role-badge.admin {
-  background: #dbeafe;
-  color: #1e40af;
+  background: #fde2e2;
+  color: #7f1d1d;
 }
 
 .role-badge.user {
@@ -586,7 +622,7 @@
 }
 
 .btn-embed {
-  background: #059669;
+  background: #AE2E31;
   color: #fff;
   border: none;
   padding: 6px 12px;
@@ -598,7 +634,7 @@
 }
 
 .btn-embed:hover:not(:disabled) {
-  background: #047857;
+  background: #8F1F22;
 }
 
 .btn-embed:disabled {
@@ -615,8 +651,8 @@
 }
 
 .status-badge.embedded {
-  background: #d1fae5;
-  color: #065f46;
+  background: #fde2e2;
+  color: #7f1d1d;
 }
 
 .status-badge.not-embedded {
@@ -645,4 +681,3 @@
   font-size: 14px;
   margin: 0;
 }
-
