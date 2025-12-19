@@ -311,12 +311,12 @@ return (
         <aside className="chat-sidebar">
             <div className="brand">Chat</div>
             <button className="new-chat-btn" onClick={handleNewChat}>
-                + New Chat
+                Obrolan baru
             </button>
             <div className="sidebar-search">
                 <input
                     type="text"
-                    placeholder="Search chat..."
+                    placeholder="Cari obrolan..."
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                 />
@@ -373,7 +373,7 @@ return (
 
         <main className="chat-main">
             <header className="chat-header">
-                Welcome, {user?.username || user?.email}
+                Halo, {user?.username || user?.email}
             </header>
             {/* search moved to the sidebar */}
             <div className="messages">
