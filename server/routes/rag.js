@@ -52,6 +52,21 @@ const CFG = {
   HTTP_TIMEOUT_MS: Number(process.env.HTTP_TIMEOUT_MS || 25000),
   GEN_TIMEOUT_MS: Number(process.env.GEN_TIMEOUT_MS || 120000),
 
+  // fast mode (reduce latency without client changes)
+  FAST_MODE: (process.env.FAST_MODE || 'true').toLowerCase() === 'true',
+  FAST_NEIGHBORS_NORMAL: Number(process.env.FAST_NEIGHBORS_NORMAL || 4),
+  FAST_NEIGHBORS_DETAIL: Number(process.env.FAST_NEIGHBORS_DETAIL || 12),
+  FAST_EXTRAS_NORMAL: Number(process.env.FAST_EXTRAS_NORMAL || 3),
+  FAST_EXTRAS_DETAIL: Number(process.env.FAST_EXTRAS_DETAIL || 5),
+  FAST_MAXCHARS_NORMAL: Number(process.env.FAST_MAXCHARS_NORMAL || 3500),
+  FAST_MAXCHARS_DETAIL: Number(process.env.FAST_MAXCHARS_DETAIL || 8000),
+  FAST_MINSENT_NORMAL: Number(process.env.FAST_MINSENT_NORMAL || 6),
+  FAST_MINSENT_DETAIL: Number(process.env.FAST_MINSENT_DETAIL || 10),
+  FAST_NUM_PREDICT_NORMAL: Number(process.env.FAST_NUM_PREDICT_NORMAL || 800),
+  FAST_NUM_PREDICT_DETAIL: Number(process.env.FAST_NUM_PREDICT_DETAIL || 1200),
+  FAST_HTTP_TIMEOUT_MS: Number(process.env.FAST_HTTP_TIMEOUT_MS || 15000),
+  FAST_GEN_TIMEOUT_MS: Number(process.env.FAST_GEN_TIMEOUT_MS || 45000),
+
   // debug
   DEBUG_TIMINGS: (process.env.DEBUG_TIMINGS || 'false').toLowerCase() === 'true',
 
@@ -205,7 +220,56 @@ export function cleanAnswer(text) {
 
   s = s.replace(/^\n+|\n+$/g, '');
 
+  // Strip document boilerplate/metadata that sometimes leaks from PDFs
+  s = stripDocBoilerplate(s);
   return s.trim();
+}
+
+function stripDocBoilerplate(text) {
+  const months = '(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)';
+  const cities = '(bandung|jakarta|surabaya|yogyakarta|semarang|bogor|depok|bali)';
+  const lines = String(text || '').split('\n');
+
+  const kept = lines.filter((raw) => {
+    const line = (raw || '').trim();
+    if (!line) return true;
+    if (/https?:\/\//i.test(line)) return true; // keep links
+    if (/\[(?:[^\]]+)\]\((?:[^)]+)\)/.test(line)) return true; // keep markdown links
+    if (/link dokumen/i.test(line)) return true;
+
+    if (/^bab\s+\d+(?:[.\d]+)?\s*$/i.test(line)) return false;
+    if (/^(daftar isi|lembar pengesahan|kata pengantar)\s*$/i.test(line)) return false;
+    if (/^(pendahuluan|latar belakang)\s*$/i.test(line)) return false;
+    if (/^universitas\s+telkom/i.test(line)) return false;
+    if (/^fakultas\s+informatika/i.test(line)) return false;
+    if (/buku\s+panduan/i.test(line) && line.length < 120) return false;
+
+    const cityMonthYear = new RegExp(`^${cities}\\s*,\\s*${months}\\s+\\d{4}$`, 'i');
+    if (cityMonthYear.test(line)) return false;
+    const monthYear = new RegExp(`\b${months}\\s+\\d{4}\b`, 'i');
+    if (monthYear.test(line) && line.length <= 80) return false;
+
+    const noSpace = line.replace(/\s+/g, '');
+    const isAllCaps = /[A-Z]/.test(noSpace) && noSpace === noSpace.toUpperCase();
+    if (isAllCaps && line.length <= 60) return false;
+
+    return true;
+  });
+
+  let out = kept.join('\n').replace(/^\s*\n+/, '').replace(/\n{3,}/g, '\n\n');
+
+  // Inline cleanup for residual tokens embedded within sentences
+  out = out.replace(/\bBAB\s+\d+(?:\.\d+)*\b(?:\s+[A-Z \-]{3,30})?/g, '');
+  out = out.replace(/\b(PENDAHULUAN|LATAR BELAKANG)\b/gi, '');
+  out = out.replace(new RegExp(`\b${months}\\s+\\d{4}\b`, 'gi'), '');
+  // City + (optional comma) + optional month-year + optional outline numbers like "7 1.1"
+  out = out.replace(new RegExp(`\\b${cities}\\b\\s*,?\\s*(?:${months}\\s+\\d{4})?(?:\\s+\\d{1,3}(?:\\s+\\d+(?:\\.\\d+)+)?)?`, 'gi'), '');
+  out = out.replace(/\bDekan\s+Fakultas\s+Informatika\b/gi, '');
+  out = out.replace(/\bBuku\s+Panduan[^\n]{0,60}/gi, '');
+  out = out.replace(/\bversi\s+20\d{2}\b/gi, '');
+  out = out.replace(/\s{2,}/g, ' ');
+
+  return out;
 }
 
 /* ==================== Conversation Memory ==================== */
@@ -619,6 +683,36 @@ function looksLikeDefinitionText(text) {
   return t.includes(' adalah ') || t.includes(' merupakan ') || t.includes(' didefinisikan ');
 }
 
+// Crop context to relevant section based on user query keywords
+function cropContextByQuery(query, text) {
+  try {
+    const q = String(query || '').toLowerCase();
+    let s = String(text || '');
+    if (!q || !s) return s;
+
+    const rules = [
+      { kw: /(ruang\s+lingkup|lingkup\s+kerja|scope|cakupan)/i, re: /ruang\s+lingkup[^:\n]*:?/i },
+      { kw: /(tujuan|manfaat)/i, re: /tujuan[^:\n]*:?/i },
+      { kw: /(syarat|prosedur|alur|tata\s*cara)/i, re: /(syarat|prosedur|alur|tata\s*cara)[^:\n]*:?/i },
+      { kw: /(definisi|pengertian|apa itu)/i, re: /(definisi|pengertian)[^:\n]*:?/i },
+    ];
+
+    for (const r of rules) {
+      if (r.kw.test(q)) {
+        const m = r.re.exec(s);
+        if (m && typeof m.index === 'number') {
+          s = s.slice(m.index);
+          break;
+        }
+      }
+    }
+
+    return s;
+  } catch {
+    return text;
+  }
+}
+
 /* ==================== Qdrant Helpers ==================== */
 async function createQdrantClient() {
   const qdrantModule = await import('@qdrant/js-client-rest');
@@ -704,11 +798,11 @@ function buildAnchorPlusNeighborsText(anchorPayload, neighborPoints, opts = {}) 
   const minSentences = Number(opts.minSentences || 8);
 
   const parts = [];
-  const anchorText = normalizeText(anchorPayload?.text || anchorPayload?.snippet || '');
+  const anchorText = stripDocBoilerplate(normalizeText(anchorPayload?.text || anchorPayload?.snippet || ''));
   if (anchorText) parts.push(anchorText);
 
   for (const np of neighborPoints || []) {
-    const t = normalizeText(np?.payload?.text || '');
+    const t = stripDocBoilerplate(normalizeText(np?.payload?.text || ''));
     if (t) parts.push(t);
 
     const joined = parts.join(' ');
@@ -718,6 +812,10 @@ function buildAnchorPlusNeighborsText(anchorPayload, neighborPoints, opts = {}) 
 
   let joined = parts.join(' ').trim();
   if (joined.length > maxChars) joined = joined.slice(0, maxChars);
+  // If query provided, crop to the relevant section
+  if (opts && opts.query) {
+    joined = cropContextByQuery(opts.query, joined);
+  }
   return joined;
 }
 
@@ -784,7 +882,7 @@ function ensureClosingQuestion(answer, topic) {
 }
 
 /* ==================== Embedding helper ==================== */
-async function embedText(input) {
+async function embedText(input, opts = {}) {
   const candidates = [`${CFG.EMBED_URL}/api/embed`, `${CFG.EMBED_URL}/embed`];
 
   let lastErr = null;
@@ -793,7 +891,7 @@ async function embedText(input) {
       const r = await postWithTimeout(
         url,
         { model: CFG.EMBED_MODEL, input, keep_alive: '10m' },
-        { timeoutMs: CFG.HTTP_TIMEOUT_MS, retry: 1 }
+        { timeoutMs: opts.timeoutMs || CFG.HTTP_TIMEOUT_MS, retry: 1 }
       );
       if (r.ok) return await r.json();
       lastErr = new Error(await r.text().catch(() => 'embed failed'));
@@ -821,9 +919,11 @@ router.post('/', async (req, res) => {
       id_user: rawIdUser,
       topic: rawTopic,
       filename: rawFilename,
+      fast: rawFast,
     } = req.body || {};
 
     const top_k = Number(rawTopK || CFG.TOP_K_DEFAULT);
+    const fast = typeof rawFast === 'boolean' ? rawFast : CFG.FAST_MODE;
     let id_user = rawIdUser ? Number(rawIdUser) : null;
 
     // Prefer id_user from JWT if Authorization header present
@@ -1154,9 +1254,12 @@ Tutup jawaban dengan:
         answer = rawText.slice(0, 5200).trim();
       }
 
-      answer = await polishAnswerWithGemma(answer);
+      if (!fast) {
+        // Skip polishing in fast mode to save latency
+        answer = await polishAnswerWithGemma(answer);
+      }
       answer = ensureClosingQuestion(answer, topic);
-      answer = `${answer}\n\nINI UPDATED`;
+      // remove debug suffix to avoid extra tokens
 
 
       const last = points[points.length - 1];
@@ -1213,7 +1316,7 @@ Tutup jawaban dengan:
     const docFilter = buildDocFilter({ topic, filename: filenameFilter });
 
     tick('embed');
-    const embedResp = await embedText(effectivePrompt);
+    const embedResp = await embedText(effectivePrompt, { timeoutMs: fast ? CFG.FAST_HTTP_TIMEOUT_MS : CFG.HTTP_TIMEOUT_MS });
 
     const qvec =
       (Array.isArray(embedResp?.embedding) && embedResp.embedding) ||
@@ -1282,13 +1385,20 @@ Tutup jawaban dengan:
     const anchor = relevant[0];
     const anchorPayload = anchor?.payload || {};
 
-    const neighborCount = wantsDetail ? CFG.NEIGHBORS_DETAIL : CFG.NEIGHBORS_NORMAL;
+    const neighborCount = wantsDetail
+      ? (fast ? CFG.FAST_NEIGHBORS_DETAIL : CFG.NEIGHBORS_DETAIL)
+      : (fast ? CFG.FAST_NEIGHBORS_NORMAL : CFG.NEIGHBORS_NORMAL);
     tick('neighbors');
     const neighbors = await fetchNeighborsAfterAnchor(qdrant, COLLECTION, anchorPayload, docFilter, { count: neighborCount });
 
     const focusedText = buildAnchorPlusNeighborsText(anchorPayload, neighbors, {
-      maxChars: wantsDetail ? CFG.MAXCHARS_DETAIL : CFG.MAXCHARS_NORMAL,
-      minSentences: wantsDetail ? CFG.MINSENT_DETAIL : CFG.MINSENT_NORMAL,
+      maxChars: wantsDetail
+        ? (fast ? CFG.FAST_MAXCHARS_DETAIL : CFG.MAXCHARS_DETAIL)
+        : (fast ? CFG.FAST_MAXCHARS_NORMAL : CFG.MAXCHARS_NORMAL),
+      minSentences: wantsDetail
+        ? (fast ? CFG.FAST_MINSENT_DETAIL : CFG.MINSENT_DETAIL)
+        : (fast ? CFG.FAST_MINSENT_NORMAL : CFG.MINSENT_NORMAL),
+      query: userQuery,
     });
 
     const contextBlocks = [];
@@ -1296,12 +1406,15 @@ Tutup jawaban dengan:
       contextBlocks.push(`SOURCE: ${anchorPayload.filename || 'doc'} (p${anchorPayload.page || '?'})\n${focusedText}`);
     }
 
-    const extraCount = wantsDetail ? CFG.EXTRAS_DETAIL : CFG.EXTRAS_NORMAL;
+    const extraCount = wantsDetail
+      ? (fast ? CFG.FAST_EXTRAS_DETAIL : CFG.EXTRAS_DETAIL)
+      : (fast ? CFG.FAST_EXTRAS_NORMAL : CFG.EXTRAS_NORMAL);
     const extras = relevant
       .slice(1, extraCount + 1)
       .map((h) => {
         const p = h?.payload || {};
-        const t = normalizeText(p.text || p.snippet || '').slice(0, wantsDetail ? 1400 : 1000);
+        let t = stripDocBoilerplate(normalizeText(p.text || p.snippet || ''));
+        t = cropContextByQuery(userQuery, t).slice(0, wantsDetail ? 1400 : 1000);
         if (!t || !t.trim()) return '';
         return `SOURCE: ${p.filename || 'doc'} (p${p.page || '?'})\n${t}`;
       })
@@ -1369,11 +1482,13 @@ ${contextText}
 
 Tutup jawaban dengan:
 "Apakah penjelasan ini sudah cukup, atau masih ada bagian lain yang ingin Anda ketahui?"`,
-          num_predict: wantsDetail ? CFG.NUM_PREDICT_DETAIL : CFG.NUM_PREDICT_NORMAL,
+          num_predict: wantsDetail
+            ? (fast ? CFG.FAST_NUM_PREDICT_DETAIL : CFG.NUM_PREDICT_DETAIL)
+            : (fast ? CFG.FAST_NUM_PREDICT_NORMAL : CFG.NUM_PREDICT_NORMAL),
           temperature: CFG.TEMPERATURE,
         };
 
-        const genResp = await postOllamaWithFallback('generate', body, { timeoutMs: CFG.GEN_TIMEOUT_MS, retry: 1 });
+        const genResp = await postOllamaWithFallback('generate', body, { timeoutMs: fast ? CFG.FAST_GEN_TIMEOUT_MS : CFG.GEN_TIMEOUT_MS, retry: 1 });
         if (genResp && genResp.ok) {
           const genBody = await genResp.json();
           const extracted = extractTextFromOllamaResponse(genBody);
@@ -1394,9 +1509,11 @@ Tutup jawaban dengan:
       }
     }
 
-    answer = await polishAnswerWithGemma(answer);
+    if (!fast) {
+      answer = await polishAnswerWithGemma(answer);
+    }
     answer = ensureClosingQuestion(answer, topic);
-    answer = `${answer}\n\nINI UPDATED`;
+    // remove debug suffix to avoid extra tokens
 
 
     const nextMarker = {

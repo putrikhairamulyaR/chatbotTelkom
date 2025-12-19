@@ -424,7 +424,7 @@ if (ENABLE_RAG) {
 }
 
 /* -------------------- Static build -------------------- */
-const port = process.env.PORT || 4000;
+let basePort = Number(process.env.PORT || 4000);
 const distPath = path.resolve(process.cwd(), '..', 'dist');
 
 if (fs.existsSync(distPath)) {
@@ -434,4 +434,29 @@ if (fs.existsSync(distPath)) {
   });
 }
 
-app.listen(port, () => console.log(`Server listening on ${port}`));
+async function startServer(port, attemptsLeft = 10) {
+  try {
+    const server = app.listen(port, () => console.log(`Server listening on ${port}`));
+    server.on('error', (err) => {
+      if (err && err.code === 'EADDRINUSE' && attemptsLeft > 0) {
+        const nextPort = port + 1;
+        console.warn(`[server] Port ${port} in use, trying ${nextPort}...`);
+        setTimeout(() => startServer(nextPort, attemptsLeft - 1), 300);
+      } else if (err) {
+        console.error('[server] Failed to start:', err);
+        process.exit(1);
+      }
+    });
+  } catch (err) {
+    if (attemptsLeft > 0 && err && err.code === 'EADDRINUSE') {
+      const nextPort = port + 1;
+      console.warn(`[server] Port ${port} in use, trying ${nextPort}...`);
+      setTimeout(() => startServer(nextPort, attemptsLeft - 1), 300);
+    } else {
+      console.error('[server] Unable to bind to port:', err);
+      process.exit(1);
+    }
+  }
+}
+
+startServer(basePort);
