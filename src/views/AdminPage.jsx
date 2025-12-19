@@ -479,16 +479,13 @@ export default function AdminPage({ user, onLogout }) {
     setUserForm({ username: '', nim: '', email: '', password: '', prodi: '', role: 'user' });
   };
 
+  const [showMenu, setShowMenu] = useState(false);
+
   return (<>
     <div className="admin-container">
       <header className="admin-header">
         <h1>Admin Panel</h1>
-        <div className="admin-header-right">
-          <span className="user-info">{user?.username || user?.email}</span>
-          <button className="logout-btn" onClick={onLogout}>
-            Logout
-          </button>
-        </div>
+        <div className="admin-header-right"></div>
       </header>
 
       <div className="admin-content">
@@ -517,6 +514,31 @@ export default function AdminPage({ user, onLogout }) {
           >
             Pengaturan Sumber Daya
           </button>
+          <div className="user-area">
+            <div
+              className="user-info"
+              role="button"
+              onClick={() => setShowMenu(!showMenu)}
+              title="Profile"
+            >
+              <span className="avatar">{(user?.username || user?.email || 'U')[0]?.toUpperCase?.() || 'U'}</span>
+              <span className="profile-name">{user?.username || user?.email}</span>
+              <span className="dropdown-icon">{showMenu ? '▲' : '▼'}</span>
+            </div>
+            {showMenu && (
+              <div className="profile-menu">
+                <button
+                  className="logout-btn"
+                  onClick={() => {
+                    setShowMenu(false);
+                    onLogout && onLogout();
+                  }}
+                >
+                  Logout
+                </button>
+              </div>
+            )}
+          </div>
         </nav>
 
         <div className="admin-main">
