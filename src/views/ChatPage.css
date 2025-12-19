@@ -32,12 +32,12 @@
 .msg.bot {background: #ffffff;border: 1px solid rgba(0, 0, 0, 0.06);margin-right: auto; }
 .msg.user {background: rgba(255, 255, 255, 0.12); backdrop-filter: blur(4px);color: #111;border: 1px solid rgba(255, 255, 255, 0.2);margin-left: auto; }
 .msg {width: fit-content;max-width: 85%; padding: 12px 16px;margin-bottom: 12px;border-radius: 8px;box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);font-size: 14px;line-height: 1.3;white-space: pre-wrap;}
-.chat-input{display:flex;padding:12px;border-top:1px solid rgba(0,0,0,0.05);background:#fff;align-items:center;gap:8px}
 .control-buttons{display:flex;gap:6px}
 .pause-btn,.continue-btn{background:#6b7280;color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:16px;line-height:1;transition:background 0.2s;min-width:40px}
 .pause-btn:hover{background:#4b5563}
 .continue-btn:hover{background:#4b5563}
 .chat-input input,.chat-input button{box-sizing:border-box}
+.chat-input{display:flex;padding:12px;border-top:1px solid rgba(0,0,0,0.05);background:#fff;align-items:center;gap:8px}
 .chat-input input{flex:1;padding:10px 12px;border:1px solid rgba(0,0,0,0.08);border-radius:6px;height:44px}
 .chat-input button[type="submit"]{display:flex;align-items:center;justify-content:center;min-width:84px;height:44px;background:#EC3237;color:#fff;border:none;padding:0 16px;border-radius:6px;cursor:pointer;font-weight:500}
 .chat-input button[type="submit"]:hover{background:#AE2E31}

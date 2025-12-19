@@ -333,7 +333,7 @@ return (
                         <button 
                             className="delete-chat-btn"
                             onClick={(e) => handleDeleteChat(e, conv.id)}
-                            title="Delete chat"
+                            title="Hapus chat"
                         >
                             ×
                         </button>
@@ -364,7 +364,7 @@ return (
                                 if (onLogout) onLogout();
                             }}
                         >
-                            Logout
+                            Keluar
                         </button>
                     </div>
                 )}
@@ -430,11 +430,11 @@ return (
                     </div>
                 )}
                 <input
-                    placeholder="Ask anything..."
+                    placeholder="Tanyakan apa saja…"
                     value={input}
                     onChange={e => setInput(e.target.value)}
                 />
-                <button type="submit">Send</button>
+                <button type="submit">Kirim</button>
             </form>
         </main>
     </div>
