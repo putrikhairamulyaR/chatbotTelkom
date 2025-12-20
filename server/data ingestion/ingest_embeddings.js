@@ -340,12 +340,70 @@ async function fetchOllamaEmbedSingle(urlBase, model, rawText) {
 
   const embRaw =
     (Array.isArray(result?.embedding) && result.embedding) ||
-    (Array.isArray(result?.embeddings?.[0]) ? result.embeddings[0] : null);
+    (Array.isArray(result?.embeddings?.[0]) ? result.embeddings[0] : null) ||
+    (Array.isArray(result?.data?.[0]?.embedding) ? result.data[0].embedding : null);
 
   const emb = normalizeEmbedding(embRaw);
   if (emb) return { embedding: emb, skipped: false };
 
   return { embedding: null, skipped: true, error: 'Embedding not valid array' };
+}
+
+async function fetchEmbedUrlBatch(embedBase, model, texts) {
+  const base = (embedBase || '').replace(/\/$/, '');
+  const candidates = [`${base}/api/embed`, `${base}/embed`];
+  for (const url of candidates) {
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, input: texts }),
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        console.warn(`  embed endpoint ${url} returned ${resp.status}: ${txt.slice(0,200)}`);
+        continue;
+      }
+      const data = await resp.json();
+      if (Array.isArray(data?.embeddings)) return data.embeddings.map((e) => normalizeEmbedding(e));
+      if (Array.isArray(data?.data)) return data.data.map((d) => normalizeEmbedding(d?.embedding ?? null));
+      // For Ollama style single-embedding responses like {embedding: [...]}
+      if (Array.isArray(data?.embedding)) return [normalizeEmbedding(data.embedding)];
+      return null;
+    } catch (err) {
+      console.warn(`  EMBED_URL request to ${url} failed:`, err?.message || err);
+      continue;
+    }
+  }
+  return null;
+}
+
+async function testEmbeddingProvider() {
+  const sample = ['hello world'];
+
+  // 1) try EMBED_URL
+  if (process.env.EMBED_URL) {
+    const got = await fetchEmbedUrlBatch(process.env.EMBED_URL, EMBED_MODEL, sample);
+    if (Array.isArray(got) && got[0]) return 'embed_url';
+  }
+
+  // 2) try Ollama single (if enabled)
+  if (USE_OLLAMA) {
+    const r = await fetchOllamaEmbedSingle(OLLAMA_URL, OLLAMA_EMBED_MODEL, sample[0]);
+    if (Array.isArray(r?.embedding) && r.embedding.length > 0) return 'ollama';
+  }
+
+  // 3) try OpenAI (if available)
+  if (openai) {
+    try {
+      const res = await openai.embeddings.create({ model: EMBED_MODEL, input: sample });
+      if (res.data?.length && Array.isArray(res.data[0].embedding)) return 'openai';
+    } catch (err) {
+      // ignore
+    }
+  }
+
+  return null;
 }
 
 /* ==================== MAIN ==================== */
@@ -419,6 +477,12 @@ async function run() {
 
   let ensured = false;
 
+  // Preflight: test provider availability once before heavy work
+  const provider = await testEmbeddingProvider();
+  if (!provider) {
+    throw new Error('No embedding provider available. Configure EMBED_URL, ensure Ollama model is available, or set OPENAI_API_KEY.');
+  }
+
   for (let i = 0; i < staged.length; i += BATCH_SIZE) {
     const batch = staged.slice(i, i + BATCH_SIZE);
     const texts = batch.map((p) => p.embedText);
@@ -427,7 +491,14 @@ async function run() {
 
     let embeddings = null;
 
-    if (USE_OLLAMA) {
+    // 1) Try EMBED_URL (fast batch) if configured
+    if (process.env.EMBED_URL) {
+      embeddings = await fetchEmbedUrlBatch(process.env.EMBED_URL, EMBED_MODEL, texts);
+      if (Array.isArray(embeddings) && embeddings.every((e) => e === null)) embeddings = null;
+    }
+
+    // 2) If EMBED_URL not used/failed, try Ollama per-item (if enabled)
+    if (!embeddings && USE_OLLAMA) {
       const allEmbeddings = [];
       for (let idx = 0; idx < texts.length; idx++) {
         const t = sanitizeForEmbed(texts[idx]);
@@ -440,7 +511,10 @@ async function run() {
         if (idx < texts.length - 1) await sleep(150);
       }
       embeddings = allEmbeddings;
-    } else {
+    }
+
+    // 3) Fallback to OpenAI when available
+    if (!embeddings && openai) {
       const res = await openai.embeddings.create({ model: EMBED_MODEL, input: texts });
       if (!res.data?.length) throw new Error('Empty embeddings response');
       embeddings = res.data.map((d) => normalizeEmbedding(d.embedding));

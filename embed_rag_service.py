@@ -11,7 +11,7 @@ import requests
 
 app = FastAPI(title='Embed + RAG Service')
 
-EMBED_MODEL = os.environ.get('LOCAL_MODEL', 'sentence-transformers/all-MiniLM-L6-v2')
+EMBED_MODEL = os.environ.get('LOCAL_MODEL', 'sentence-transformers/nomic-embed-text')
 EMBED_SERVICE = os.environ.get('EMBED_URL', None)  # if provided, can forward embedding calls
 QDRANT_URL = os.environ.get('QDRANT_URL', 'http://qdrant:6333')
 QDRANT_COLLECTION = os.environ.get('QDRANT_COLLECTION', 'documents')

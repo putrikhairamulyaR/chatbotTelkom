@@ -50,7 +50,7 @@ services:
     environment:
       USE_OLLAMA: "true"
       OLLAMA_URL: "http://host.docker.internal:11434"
-      OLLAMA_MODEL: "all-mpnet-base-v2"
+      OLLAMA_MODEL: "nomic-embed-text"
       OLLAMA_API_KEY: "2d299a4f4b0343cbb3b78aa30a6051e5.EIyqiZAL-Qj_MRhOQMb7nSuS"
       QDRANT_URL: http://qdrant:6333
     volumes:
@@ -70,8 +70,8 @@ services:
       # Force local embeddings to avoid accidental forwarding to host endpoints
       FORCE_LOCAL_EMBED: "true"
       OLLAMA_URL: "http://host.docker.internal:11434"
-      OLLAMA_MODEL: "all-mpnet-base-v2"
-      LOCAL_MODEL: "sentence-transformers/all-MiniLM-L6-v2"
+      OLLAMA_MODEL: "nomic-embed-text"
+      LOCAL_MODEL: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     volumes:
       - ./:/app
     working_dir: /app

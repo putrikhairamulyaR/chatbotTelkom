@@ -13,8 +13,11 @@ MODE = os.environ.get('EMBED_MODE', 'ollama')
 MODE = MODE.strip().lower() if isinstance(MODE, str) else 'ollama'
 FORCE_LOCAL = os.environ.get('FORCE_LOCAL_EMBED', 'false').strip().lower() in ('1', 'true', 'yes')
 OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://host.docker.internal:11434')
-OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'all-mpnet-base-v2')
-LOCAL_MODEL = os.environ.get('LOCAL_MODEL', 'sentence-transformers/all-MiniLM-L6-v2')
+OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'nomic-embed-text')
+LOCAL_MODEL = os.environ.get('LOCAL_MODEL', 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+# Accept either OLLAMA_MODEL or OLLAMA_EMBED_MODEL env var for clarity
+if os.environ.get('OLLAMA_EMBED_MODEL'):
+    OLLAMA_MODEL = os.environ.get('OLLAMA_EMBED_MODEL')
 OLLAMA_API_KEY = os.environ.get('OLLAMA_API_KEY')
 
 

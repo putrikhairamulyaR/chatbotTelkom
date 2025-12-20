@@ -20,6 +20,7 @@ const CFG = {
   EMBED_URL: (process.env.EMBED_URL || process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, ''),
   EMBED_MODEL: process.env.EMBED_MODEL || 'nomic-embed-text',
 
+
   QDRANT_URL: process.env.QDRANT_URL || 'http://127.0.0.1:6333',
   QDRANT_COLLECTION: process.env.QDRANT_COLLECTION || 'documents',
 
@@ -66,6 +67,13 @@ const CFG = {
   FAST_NUM_PREDICT_DETAIL: Number(process.env.FAST_NUM_PREDICT_DETAIL || 1200),
   FAST_HTTP_TIMEOUT_MS: Number(process.env.FAST_HTTP_TIMEOUT_MS || 15000),
   FAST_GEN_TIMEOUT_MS: Number(process.env.FAST_GEN_TIMEOUT_MS || 45000),
+
+  // fast cache + synthesis
+  FAST_CACHE_ENABLED: (process.env.FAST_CACHE_ENABLED || 'true').toLowerCase() === 'true',
+  FAST_CACHE_MAX: Number(process.env.FAST_CACHE_MAX || 300),
+  FAST_CACHE_TTL_MS: Number(process.env.FAST_CACHE_TTL_MS || 15 * 60 * 1000),
+  FAST_SYNTHESIS: (process.env.FAST_SYNTHESIS || 'true').toLowerCase() === 'true',
+  FAST_SYNTH_MIN_SCORE: Number(process.env.FAST_SYNTH_MIN_SCORE || 0.6),
 
   // debug
   DEBUG_TIMINGS: (process.env.DEBUG_TIMINGS || 'false').toLowerCase() === 'true',
@@ -270,6 +278,72 @@ function stripDocBoilerplate(text) {
   out = out.replace(/\s{2,}/g, ' ');
 
   return out;
+}
+
+/* ==================== Fast cache & synthesis helpers (reduce latency) ==================== */
+const fastCache = new Map();
+
+function cacheGet(key) {
+  try {
+    const e = fastCache.get(key);
+    if (!e) return null;
+    if (Date.now() - e.ts > CFG.FAST_CACHE_TTL_MS) {
+      fastCache.delete(key);
+      return null;
+    }
+    return e.value;
+  } catch {
+    return null;
+  }
+}
+
+function cacheSet(key, value) {
+  try {
+    fastCache.set(key, { ts: Date.now(), value });
+    while (fastCache.size > CFG.FAST_CACHE_MAX) {
+      // delete oldest
+      const k = fastCache.keys().next().value;
+      if (!k) break;
+      fastCache.delete(k);
+    }
+  } catch {}
+}
+
+function synthesizeAnswerFromContext(userQuery, focusedText, contextBlocks, opts = {}) {
+  try {
+    const { bulletMode = false, maxSentences = 6 } = opts || {};
+    const text = String(focusedText || '').trim();
+    if (!text) return '';
+
+    // split into sentences (keep punctuation)
+    const sents = (text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || []).map((s) => s.trim()).filter(Boolean);
+    if (!sents.length) return text.slice(0, 800);
+
+    // If user asked for procedure/steps, try to make numbered steps
+    if (bulletMode) {
+      const chosen = sents.slice(0, maxSentences).map((s, i) => `${i + 1}. ${s.replace(/\s+/g, ' ').trim()}`);
+      return chosen.join('\n');
+    }
+
+    // For normal questions: pick first N sentences, but prefer sentences containing keywords from the user query
+    const qwords = (String(userQuery || '').toLowerCase().split(/\s+/).filter((w) => w.length > 2));
+    const scored = sents.map((s) => {
+      const low = s.toLowerCase();
+      const score = qwords.reduce((acc, w) => acc + (low.includes(w) ? 1 : 0), 0);
+      return { s, score };
+    });
+    scored.sort((a, b) => b.score - a.score);
+
+    const chosen = scored.slice(0, maxSentences).map((x) => x.s);
+
+    // Keep original order for readability
+    const ordered = sents.filter((s) => chosen.includes(s)).slice(0, maxSentences);
+
+    const out = ordered.join(' ');
+    return out.length > 1600 ? out.slice(0, 1600) : out;
+  } catch {
+    return focusedText.slice(0, 800);
+  }
 }
 
 /* ==================== Conversation Memory ==================== */
@@ -1309,6 +1383,24 @@ Tutup jawaban dengan:
 
     const effectivePrompt = expandQuery(userQuery);
 
+    // FAST CACHE: check early to avoid doing work when possible
+    const cacheKey = `rag::${topic || 'any'}::${effectivePrompt}::${fast ? 'fast' : 'normal'}`;
+    if (CFG.FAST_CACHE_ENABLED) {
+      try {
+        const cached = cacheGet(cacheKey);
+        if (cached) {
+          // record that we answered (store last query)
+          await persistMessage(id_user, 'bot', cached.answer, 'answer', null, null);
+          return res.json({
+            ...cached,
+            metadata: { ...(analysis || {}), from_cache: true },
+            context_messages: recentDesc,
+            ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
+          });
+        }
+      } catch {}
+    }
+
     tick('qdrant_client');
     const qdrant = await createQdrantClient();
     const COLLECTION = CFG.QDRANT_COLLECTION;
@@ -1449,7 +1541,26 @@ Tutup jawaban dengan:
     }
 
     let answer = '';
-    if (CFG.ENABLE_RAG_GEN && contextBlocks.length > 0) {
+
+    // Attempt a fast synthesis (no LLM) when in fast mode and not explicitly requesting detail
+    let fastSynthUsed = false;
+    if (fast && CFG.FAST_SYNTHESIS && !wantsDetail) {
+      try {
+        const bestScore = relevant?.[0]?.reranked_score || relevant?.[0]?.score || 0;
+        if (bestScore >= CFG.FAST_SYNTH_MIN_SCORE && focusedText && countSentences(focusedText) >= CFG.FAST_MINSENT_NORMAL) {
+          const bulletMode = /syarat|prosedur|cara|langkah|alur/i.test(userQuery || '');
+          const synth = synthesizeAnswerFromContext(userQuery, focusedText, contextBlocks, { bulletMode, maxSentences: 6 });
+          if (synth && synth.trim()) {
+            answer = cleanAnswer(synth);
+            fastSynthUsed = true;
+          }
+        }
+      } catch (e) {
+        // ignore and fall back to generation
+      }
+    }
+
+    if (!fastSynthUsed && CFG.ENABLE_RAG_GEN && contextBlocks.length > 0) {
       tick('gen');
       try {
         const contextText = contextBlocks.join('\n\n---\n\n');
@@ -1546,6 +1657,29 @@ Tutup jawaban dengan:
       `[Link dokumen: ${firstFile}](${docUrl})\n\n` +
       `Jika masih kurang detail, balas "lanjut" (bertahap) atau "detail" (lebih panjang).\n\n` +
       `[Kalo membutuhkan dokumen lebih rinci](https://info-bif.telkomuniversity.ac.id/links)`;
+
+    // cache the response for short TTL when fast cache is enabled
+    try {
+      if (CFG.FAST_CACHE_ENABLED) {
+        const cachePayload = {
+          answer: finalAnswer,
+          sources: sources.map((s) => ({
+            ...s,
+            url: CFG.PUBLIC_BASE_URL ? `${CFG.PUBLIC_BASE_URL}/files/${s.filename}` : `/files/${s.filename}`,
+          })),
+          raw_hits: relevant.slice(0, top_k).map((h) => ({
+            id: h.id,
+            score: h.reranked_score || h.score || 0,
+            filename: h?.payload?.filename,
+            page: h?.payload?.page,
+            order: h?.payload?.order,
+            chunk_index: h?.payload?.chunk_index,
+            topic: h?.payload?.topic,
+          })),
+        };
+        cacheSet(cacheKey, cachePayload);
+      }
+    } catch {}
 
     await persistMessage(id_user, 'bot', finalAnswer, 'answer', null, null);
 
