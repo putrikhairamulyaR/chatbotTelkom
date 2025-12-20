@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import './AdminPage.css';
 
-const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+// Use same-origin by default so Vite dev proxy (server.proxy) handles /api calls.
+// If VITE_API_URL is set, it will override and point to the backend explicitly.
+const apiBase = import.meta.env.VITE_API_URL || '';
 
 export default function AdminPage({ user, onLogout }) {
   const PRODI_OPTIONS = [
@@ -79,9 +81,11 @@ export default function AdminPage({ user, onLogout }) {
 
       const data = await res.json();
       showToast(data.message || 'File berhasil diupload', 'success');
+      // Reset and close the upload panel
       setSelectedFile(null);
-      // Optionally close panel after upload
-      // setShowUploadPanel(false);
+      setUploadTopic('');
+      setUploadSubtopic('');
+      setShowUploadPanel(false);
       fetchResources();
     } catch (err) {
       showToast('Error: ' + err.message, 'error', 5000);

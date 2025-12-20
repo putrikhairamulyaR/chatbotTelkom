@@ -268,38 +268,44 @@ async function extractTextFromFile(filePath, originalName) {
 }
 
 async function getEmbedding(text, model = 'nomic-embed-text') {
-  const EMBED_URL = (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '');
+  const fetchImpl = globalThis.fetch || (await import('node-fetch')).default;
+  const OLLAMA_URL = (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '');
+  const EMBED_SERVICE_URL = (process.env.EMBED_URL || '').replace(/\/$/, '');
   const EMBED_MODEL = process.env.EMBED_MODEL || model;
-  
-  const candidates = [
-    `${EMBED_URL}/api/embed`,
-    `${EMBED_URL}/embed`,
-  ];
-  
-  for (const url of candidates) {
+
+  // Try Python embed service first if configured (EMBED_URL points to it), then Ollama endpoints
+  const candidates = [];
+  if (EMBED_SERVICE_URL) {
+    candidates.push({ url: `${EMBED_SERVICE_URL}/embed`, body: { model: EMBED_MODEL, input: [text] } });
+  }
+  // Ollama new and legacy paths
+  candidates.push({ url: `${OLLAMA_URL}/api/embed`, body: { model: EMBED_MODEL, input: text, keep_alive: '10m' } });
+  candidates.push({ url: `${OLLAMA_URL}/embed`, body: { model: EMBED_MODEL, input: text, keep_alive: '10m' } });
+
+  for (const c of candidates) {
     try {
-      const fetch = globalThis.fetch || (await import('node-fetch')).default;
-      const resp = await fetch(url, {
+      const resp = await fetchImpl(c.url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: EMBED_MODEL, input: text, keep_alive: '10m' }),
+        body: JSON.stringify(c.body),
       });
-      
-      if (resp.ok) {
-        const data = await resp.json();
-        const embedding = 
-          (Array.isArray(data?.embedding) && data.embedding) ||
-          (Array.isArray(data?.embeddings) && data.embeddings?.[0]) ||
-          (data?.data?.[0]?.embedding);
-        
-        if (embedding) return embedding;
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => '<no-body>');
+        console.warn('Embedding endpoint error:', resp.status, txt.slice(0, 200));
+        continue;
       }
+      const data = await resp.json().catch(() => null);
+      const embedding =
+        (Array.isArray(data?.embedding) && data.embedding) ||
+        (Array.isArray(data?.embeddings) && data.embeddings?.[0]) ||
+        (data?.data?.[0]?.embedding);
+      if (embedding && Array.isArray(embedding)) return embedding;
     } catch (err) {
       console.warn('Embedding fetch failed:', err?.message);
     }
   }
-  
-  throw new Error('Failed to get embedding');
+
+  throw new Error('Failed to get embedding from available providers');
 }
 
 // Helper: Log audit action (to both audit_log and user_log)
@@ -880,36 +886,40 @@ router.get('/resources', async (req, res) => {
     });
     const collection = process.env.QDRANT_COLLECTION || 'documents';
 
-    // Get files from Qdrant
+    // Get files from Qdrant (gracefully handle missing collection or offline Qdrant)
     const qdrantFilesMap = new Map();
-    let nextPageOffset = null;
+    try {
+      let nextPageOffset = null;
+      do {
+        const scrollRes = await qdrant.scroll(collection, {
+          limit: 100,
+          offset: nextPageOffset,
+          with_payload: true,
+        });
 
-    do {
-      const scrollRes = await qdrant.scroll(collection, {
-        limit: 100,
-        offset: nextPageOffset,
-        with_payload: true,
-      });
-
-      for (const point of scrollRes.points || []) {
-        const filename = point.payload?.filename;
-        if (filename) {
-          if (!qdrantFilesMap.has(filename)) {
-            qdrantFilesMap.set(filename, {
-              filename,
-              filepath: point.payload?.filepath || '',
-              chunks: 0,
-              firstSeen: point.payload?.created_at || null,
-              topic: point.payload?.topic || null,
-              subtopic: point.payload?.subtopic || null,
-            });
+        for (const point of scrollRes.points || []) {
+          const filename = point.payload?.filename;
+          if (filename) {
+            if (!qdrantFilesMap.has(filename)) {
+              qdrantFilesMap.set(filename, {
+                filename,
+                filepath: point.payload?.filepath || '',
+                chunks: 0,
+                firstSeen: point.payload?.created_at || null,
+                topic: point.payload?.topic || null,
+                subtopic: point.payload?.subtopic || null,
+              });
+            }
+            qdrantFilesMap.get(filename).chunks++;
           }
-          qdrantFilesMap.get(filename).chunks++;
         }
-      }
 
-      nextPageOffset = scrollRes.next_page_offset;
-    } while (nextPageOffset !== null);
+        nextPageOffset = scrollRes.next_page_offset;
+      } while (nextPageOffset !== null);
+    } catch (qErr) {
+      // Common when collection doesn't exist yet or Qdrant is down
+      console.warn('[admin] Qdrant unavailable or collection missing for /resources:', qErr?.message);
+    }
 
     // Get files from data folder
     const dataFiles = [];
@@ -984,25 +994,53 @@ router.get('/resources', async (req, res) => {
 router.delete('/resources/:filename', async (req, res) => {
   try {
     const id_user = req.user?.id_user;
-    const filename = decodeURIComponent(req.params.filename);
+    const rawParam = String(req.params.filename || '');
+    let filename = rawParam;
+    try {
+      filename = decodeURIComponent(rawParam);
+    } catch {}
 
-    const qdrant = new QdrantClient({
-      url: process.env.QDRANT_URL || 'http://127.0.0.1:6333',
-      checkCompatibility: false,
-    });
+    let qdrant = null;
     const collection = process.env.QDRANT_COLLECTION || 'documents';
+    try {
+      qdrant = new QdrantClient({
+        url: process.env.QDRANT_URL || 'http://127.0.0.1:6333',
+        checkCompatibility: false,
+      });
+    } catch (qcErr) {
+      console.warn('[admin] Qdrant client init failed:', qcErr?.message);
+      qdrant = null;
+    }
 
-    // Delete all points with this filename
-    await qdrant.delete(collection, {
-      filter: {
-        must: [
-          {
-            key: 'filename',
-            match: { value: filename },
-          },
-        ],
-      },
-    });
+    // Delete all points with this filename (graceful if Qdrant unavailable/missing collection)
+    let qdrantDeleted = false;
+    try {
+      if (!qdrant) throw new Error('Qdrant unavailable');
+      await qdrant.delete(collection, {
+        filter: {
+          must: [
+            {
+              key: 'filename',
+              match: { value: filename },
+            },
+          ],
+        },
+      });
+      // Verify deletion by attempting to scroll for remaining points
+      try {
+        const verify = await qdrant.scroll(collection, {
+          limit: 1,
+          with_payload: true,
+          filter: { must: [{ key: 'filename', match: { value: filename } }] },
+        });
+        qdrantDeleted = !verify.points || verify.points.length === 0;
+      } catch (verErr) {
+        // If verification fails, assume best-effort deletion
+        qdrantDeleted = true;
+      }
+    } catch (delErr) {
+      console.warn('[admin] Qdrant delete failed:', delErr?.message);
+    }
 
     // Also try to delete the physical file
     const DATA_DIR = path.resolve(process.cwd(), '..', 'data');
@@ -1025,9 +1063,9 @@ router.delete('/resources/:filename', async (req, res) => {
       console.warn('[admin] Failed to delete meta file:', metaErr?.message);
     }
 
-    await logAudit(id_user, 'DELETE_RESOURCE', 'resource', filename, { filename }, req.ip, req.get('user-agent'));
+    await logAudit(id_user, 'DELETE_RESOURCE', 'resource', filename, { filename, qdrantDeleted }, req.ip, req.get('user-agent'));
 
-    return res.json({ success: true });
+    return res.json({ success: true, qdrantDeleted });
   } catch (err) {
     console.error('[admin] Delete resource error:', err);
     return res.status(500).json({ error: String(err?.message || err) });
@@ -1150,6 +1188,7 @@ router.post('/resources/:filename/embed', async (req, res) => {
 
     // Process and embed
     const points = [];
+    let vectorSize = null;
     for (let p = 0; p < extracted.pages.length; p++) {
       const pageText = extracted.pages[p] || '';
       const chunks = chunkWithOverlap(pageText, CHUNK_SIZE, CHUNK_OVERLAP);
@@ -1163,6 +1202,9 @@ router.post('/resources/:filename/embed', async (req, res) => {
         
         // Get embedding
         const embedding = await getEmbedding(embedText);
+        if (vectorSize == null && Array.isArray(embedding)) {
+          vectorSize = embedding.length;
+        }
         
         const payload = {
           filename,
@@ -1183,6 +1225,26 @@ router.post('/resources/:filename/embed', async (req, res) => {
           payload,
         });
       }
+    }
+
+    // Ensure collection exists before upsert
+    try {
+      if (vectorSize != null) {
+        try {
+          await qdrant.getCollection(collection);
+        } catch (infoErr) {
+          console.warn('[admin] Qdrant collection missing, creating:', collection, 'size=', vectorSize);
+          try {
+            await qdrant.createCollection(collection, {
+              vectors: { size: vectorSize, distance: 'Cosine' },
+            });
+          } catch (createErr) {
+            console.warn('[admin] Failed to create collection:', createErr?.message);
+          }
+        }
+      }
+    } catch (ensureErr) {
+      console.warn('[admin] Collection ensure error:', ensureErr?.message);
     }
 
     // Batch upsert to Qdrant

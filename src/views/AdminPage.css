@@ -619,7 +619,7 @@
 }
 
 .btn-embed {
-  background: #AE2E31;
+  background: #12B981; /* green */
   color: #fff;
   border: none;
   padding: 6px 12px;
@@ -631,7 +631,7 @@
 }
 
 .btn-embed:hover:not(:disabled) {
-  background: #8F1F22;
+  background: #0F766E; /* darker green */
 }
 
 .btn-embed:disabled {
@@ -648,8 +648,8 @@
 }
 
 .status-badge.embedded {
-  background: #fde2e2;
-  color: #7f1d1d;
+  background: #dcfce7; /* light green */
+  color: #166534;     /* dark green */
 }
 
 .status-badge.not-embedded {
