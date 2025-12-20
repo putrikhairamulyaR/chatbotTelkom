@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import fsPromises from 'fs/promises';
 import { QdrantClient } from '@qdrant/js-client-rest';
+import { spawn } from 'child_process';
 import multer from 'multer';
 import { randomUUID } from 'crypto';
 
@@ -1090,6 +1091,28 @@ router.post('/resources', upload.single('document'), async (req, res) => {
     const finalFilename = file.filename || path.basename(file.originalname);
     const finalTargetPath = file.path || path.join(file.destination || DATA_DIR, finalFilename);
 
+    // Reject duplicate uploads by original filename
+    try {
+      const requestedName = (req.body?.filename || file.originalname || finalFilename).toString();
+      const originalName = path.basename(requestedName);
+      const originalPath = path.join(DATA_DIR, originalName);
+      if (fs.existsSync(originalPath) && originalName !== finalFilename) {
+        // A file with the requested original name already exists.
+        // Remove the newly saved (timestamp-suffixed) file and return 409.
+        try {
+          if (fs.existsSync(finalTargetPath)) {
+            await fsPromises.unlink(finalTargetPath);
+          }
+        } catch (cleanupErr) {
+          console.warn('[admin] Cleanup duplicate temp file failed:', cleanupErr?.message);
+        }
+        await logAudit(id_user, 'UPLOAD_RESOURCE_DUPLICATE', 'resource', originalName, { filename: originalName }, req.ip, req.get('user-agent'));
+        return res.status(409).json({ error: 'Dokumen dengan nama tersebut sudah ada. Upload dibatalkan.' });
+      }
+    } catch (dupErr) {
+      console.warn('[admin] Duplicate check error:', dupErr?.message);
+    }
+
     console.log('[admin] Upload saved:', {
       destination: file.destination,
       filename: file.filename,
@@ -1137,6 +1160,46 @@ router.post('/resources/:filename/embed', async (req, res) => {
     }
 
     console.log(`[admin] Embedding ${filename} to Qdrant...`);
+
+    // Option: run CLI ingest pipeline for the specific file
+    const useIngest = String(req.query.ingest || process.env.EMBED_VIA_INGEST || 'false').toLowerCase() === 'true';
+    if (useIngest) {
+      const scriptPath = path.resolve(process.cwd(), 'data ingestion', 'ingest_embeddings.js');
+      console.log('[admin] Running ingest script for single file:', filename);
+      await new Promise((resolve, reject) => {
+        const child = spawn('node', ['--no-deprecation', scriptPath, '--file', filename], {
+          cwd: path.resolve(process.cwd()),
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: process.env,
+        });
+        let out = '';
+        let err = '';
+        child.stdout.on('data', (d) => { out += d.toString(); });
+        child.stderr.on('data', (d) => { err += d.toString(); });
+        child.on('close', (code) => {
+          if (code === 0) resolve(out);
+          else reject(new Error(err || `ingest exit code ${code}`));
+        });
+        child.on('error', reject);
+      });
+
+      // Count chunks for this file after ingest
+      try {
+        const qdrant = new QdrantClient({ url: process.env.QDRANT_URL || 'http://127.0.0.1:6333', checkCompatibility: false });
+        const collection = process.env.QDRANT_COLLECTION || 'documents';
+        const scrollRes = await qdrant.scroll(collection, {
+          limit: 100,
+          with_payload: true,
+          filter: { must: [{ key: 'filename', match: { value: filename } }] },
+        });
+        const chunks = (scrollRes.points || []).length;
+        await logAudit(id_user, 'EMBED_RESOURCE', 'resource', filename, { filename, chunks, via: 'ingest_script' }, req.ip, req.get('user-agent'));
+        return res.json({ success: true, filename, chunks, message: `Successfully embedded via ingest for ${filename}` });
+      } catch (postErr) {
+        await logAudit(id_user, 'EMBED_RESOURCE', 'resource', filename, { filename, via: 'ingest_script' }, req.ip, req.get('user-agent'));
+        return res.json({ success: true, filename, chunks: null, message: `Ingest completed for ${filename}` });
+      }
+    }
 
     // Extract text
     const extracted = await extractTextFromFile(filePath, filename);

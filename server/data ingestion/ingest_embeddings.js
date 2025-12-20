@@ -12,6 +12,26 @@ import { createHash } from 'crypto';
 
 dotenv.config();
 
+// Simple CLI args parsing for single-file ingest
+const argv = process.argv.slice(2);
+const onlyFiles = new Set();
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '--file' || a === '--only' || a === '--filename') {
+    const v = argv[i + 1];
+    if (v) {
+      onlyFiles.add(path.basename(v));
+      i++;
+    }
+    continue;
+  }
+  const m = /^--(?:file|only|filename)=(.+)$/.exec(a);
+  if (m) {
+    onlyFiles.add(path.basename(m[1]));
+    continue;
+  }
+}
+
 /* ==================== ENV + DEFAULTS ==================== */
 console.log('INGEST START - env preview:');
 console.log('  USE_OLLAMA=', process.env.USE_OLLAMA);
@@ -423,6 +443,13 @@ async function run() {
 
     const ext = path.extname(file).toLowerCase();
     if (!['.pdf', '.txt', '.md', '.json', '.csv'].includes(ext)) continue;
+
+    if (onlyFiles.size > 0) {
+      const base = path.basename(file);
+      if (!onlyFiles.has(base)) {
+        continue;
+      }
+    }
 
     const topic = inferTopicFromPath(file);
     const doc_id = makeDocId(file);
