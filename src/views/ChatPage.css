@@ -41,4 +41,3 @@
 .chat-input input{flex:1;padding:10px 12px;border:1px solid rgba(0,0,0,0.08);border-radius:6px;height:44px}
 .chat-input button[type="submit"]{display:flex;align-items:center;justify-content:center;min-width:84px;height:44px;background:#EC3237;color:#fff;border:none;padding:0 16px;border-radius:6px;cursor:pointer;font-weight:500}
 .chat-input button[type="submit"]:hover{background:#AE2E31}
-.dropdown-icon{margin-left: 6px;font-size: 12px;opacity: 0.8;color:#000000}

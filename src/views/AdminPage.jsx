@@ -531,7 +531,6 @@ export default function AdminPage({ user, onLogout }) {
             >
               <span className="avatar">{(user?.username || user?.email || 'U')[0]?.toUpperCase?.() || 'U'}</span>
               <span className="profile-name">{user?.username || user?.email}</span>
-              <span className="dropdown-icon">{showMenu ? '▲' : '▼'}</span>
             </div>
             {showMenu && (
               <div className="profile-menu">
