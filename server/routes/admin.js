@@ -8,6 +8,7 @@ import fsPromises from 'fs/promises';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { spawn } from 'child_process';
 import multer from 'multer';
+import mammoth from 'mammoth';
 import { randomUUID } from 'crypto';
 
 // Helper functions untuk extract topic (dari statistics.js)
@@ -170,10 +171,11 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    if (['.pdf', '.txt', '.md'].includes(ext)) {
+    // Allow Word uploads too (.docx, .doc) for storage, but embedding will be restricted
+    if (['.pdf', '.txt', '.md', '.docx', '.doc'].includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF, TXT, and MD files are allowed'));
+      cb(new Error('Only PDF, TXT, MD, DOCX, and DOC files are allowed'));
     }
   },
 });
@@ -262,6 +264,16 @@ async function extractTextFromFile(filePath, originalName) {
   if (ext === '.pdf') {
     const pages = await extractPdfPages(filePath);
     return { type: 'pdf', pages, filename: path.basename(originalName) };
+  } else if (ext === '.docx') {
+    try {
+      const data = await fsPromises.readFile(filePath);
+      const res = await mammoth.extractRawText({ buffer: data });
+      const txt = (res && res.value) ? String(res.value) : '';
+      return { type: 'docx', pages: [txt], filename: path.basename(originalName) };
+    } catch (err) {
+      console.warn('DOCX extract failed:', err?.message);
+      return { type: 'docx', pages: [''], filename: path.basename(originalName) };
+    }
   } else {
     const text = await fsPromises.readFile(filePath, 'utf8');
     return { type: 'text', pages: [text], filename: path.basename(originalName) };
@@ -929,7 +941,8 @@ router.get('/resources', async (req, res) => {
       for (const file of files) {
         const filePath = path.join(DATA_DIR, file);
         const stat = await fsPromises.stat(filePath);
-        if (stat.isFile() && ['.pdf', '.txt', '.md'].includes(path.extname(file).toLowerCase())) {
+        // Include Word documents in listing; embedding remains restricted elsewhere
+        if (stat.isFile() && ['.pdf', '.txt', '.md', '.doc', '.docx'].includes(path.extname(file).toLowerCase())) {
           const isEmbedded = qdrantFilesMap.has(file);
           // Try read metadata sidecar
           let topic = null;
@@ -1157,6 +1170,13 @@ router.post('/resources/:filename/embed', async (req, res) => {
 
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Restrict embedding to PDF/TXT/MD only
+    const ext = path.extname(filename).toLowerCase();
+    const allowedForEmbed = new Set(['.pdf', '.txt', '.md']);
+    if (!allowedForEmbed.has(ext)) {
+      return res.status(400).json({ error: 'Format file tidak didukung untuk embed. Gunakan PDF/TXT/MD.' });
     }
 
     console.log(`[admin] Embedding ${filename} to Qdrant...`);

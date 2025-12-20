@@ -48,6 +48,23 @@ export default function AdminPage({ user, onLogout }) {
   const [uploadSubtopic, setUploadSubtopic] = useState('');
   const [showUploadPanel, setShowUploadPanel] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
+  
+  // Sort resources so PDFs appear first, then Word docs, then others
+  const sortedResources = useMemo(() => {
+    const EXT_PRIORITY = { '.pdf': 0, '.txt': 1, '.md': 2, '.doc': 3, '.docx': 3 };
+    const getExt = (name) => {
+      const lower = (name || '').toLowerCase();
+      const idx = lower.lastIndexOf('.');
+      return idx >= 0 ? lower.slice(idx) : '';
+    };
+    return [...resources].sort((a, b) => {
+      const pa = EXT_PRIORITY[getExt(a?.filename)] ?? 99;
+      const pb = EXT_PRIORITY[getExt(b?.filename)] ?? 99;
+      if (pa !== pb) return pa - pb;
+      // Tie-breaker: alphabetical by filename
+      return (a?.filename || '').localeCompare(b?.filename || '');
+    });
+  }, [resources]);
 
   const handleSubmitUpload = async () => {
     try {
@@ -55,11 +72,7 @@ export default function AdminPage({ user, onLogout }) {
         showToast('Pilih file terlebih dahulu', 'error');
         return;
       }
-      const name = selectedFile.name.toLowerCase();
-      if (!name.endsWith('.pdf') && !name.endsWith('.txt') && !name.endsWith('.md')) {
-        showToast('Hanya file PDF, TXT, dan MD yang diizinkan', 'error', 5000);
-        return;
-      }
+      // Upload should accept DOC/DOCX and other supported docs.
 
       setUploading(true);
       const formData = new FormData();
@@ -398,10 +411,7 @@ export default function AdminPage({ user, onLogout }) {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (!['.pdf', '.txt', '.md'].includes(file.name.toLowerCase().slice(-4))) {
-      showToast('Hanya file PDF, TXT, dan MD yang diizinkan', 'error', 5000);
-      return;
-    }
+    // Allow uploading broader document types; embed will be restricted later.
 
     try {
       setUploading(true);
@@ -1079,7 +1089,7 @@ export default function AdminPage({ user, onLogout }) {
                       <div style={{ fontSize: 32 }}>📄</div>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontWeight: 600, color: '#111827' }}>Pilih dokumen untuk diupload</div>
-                        <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>Format: PDF, TXT, MD</div>
+                        <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>Upload: PDF/TXT/MD/DOC/DOCX • Embed: PDF/TXT/MD</div>
                         {selectedFile && (
                           <div style={{ marginTop: 8, color: '#2563eb', fontWeight: 500 }}>✓ Dipilih: {selectedFile.name}</div>
                         )}
@@ -1088,7 +1098,7 @@ export default function AdminPage({ user, onLogout }) {
                         <input
                           id="file-input-hidden"
                           type="file"
-                          accept=".pdf,.txt,.md"
+                          accept=".pdf,.txt,.md,.docx,.doc"
                           onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
                           disabled={uploading}
                           style={{ display: 'none' }}
@@ -1142,7 +1152,7 @@ export default function AdminPage({ user, onLogout }) {
                 </div>
               )}
               <p className="info-text">
-                Upload dokumen PDF/TXT/MD dan embed ke Qdrant untuk digunakan dalam chatbot.
+                Upload dokumen PDF/TXT/MD/DOCX. Embed ke Qdrant hanya untuk PDF/TXT/MD.
               </p>
               <table className="data-table">
                 <thead>
@@ -1157,7 +1167,7 @@ export default function AdminPage({ user, onLogout }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {resources.map((file, i) => (
+                  {sortedResources.map((file, i) => (
                     <tr key={i}>
                       <td className="doc-name">{file.filename}</td>
                       <td>
@@ -1176,7 +1186,16 @@ export default function AdminPage({ user, onLogout }) {
                           {!file.isEmbedded && (
                             <button
                               className="btn-embed"
-                              onClick={() => handleEmbedResource(file.filename)}
+                              onClick={() => {
+                                const name = (file.filename || '').toLowerCase();
+                                const ext = name.slice(name.lastIndexOf('.') >= 0 ? name.lastIndexOf('.') : name.length);
+                                const allowed = new Set(['.pdf', '.txt', '.md']);
+                                if (!allowed.has(ext)) {
+                                  showToast('Format file ini tidak dapat di-embed. Gunakan PDF/TXT/MD.', 'error', 4000);
+                                  return;
+                                }
+                                handleEmbedResource(file.filename);
+                              }}
                               disabled={embedding[file.filename]}
                             >
                               {embedding[file.filename] ? 'Embedding...' : 'Embed ke Qdrant'}
