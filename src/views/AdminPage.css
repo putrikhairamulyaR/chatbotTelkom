@@ -83,14 +83,13 @@
   height: calc(100vh - 70px); /* full height minus header */
   background: #fff;
   padding: 20px;
-  border-right: 1px solid #e5e7eb;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   overflow-y: auto; /* allow nav items to scroll if needed */
 }
 
 .admin-nav button {
   background: #fff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #ffffff;
   padding: 12px 16px;
   border-radius: 6px;
   cursor: pointer;
