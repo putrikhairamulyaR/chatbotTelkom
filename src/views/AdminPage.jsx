@@ -1089,7 +1089,7 @@ export default function AdminPage({ user, onLogout }) {
                       <div style={{ fontSize: 32 }}>📄</div>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontWeight: 600, color: '#111827' }}>Pilih dokumen untuk diupload</div>
-                        <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>Upload: PDF/TXT/MD/DOC/DOCX • Embed: PDF/TXT/MD</div>
+                        <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>Upload: PDF/TXT/MD/DOC/DOCX • Embed: PDF/TXT/MD/DOCX (Word disimpan 1 vector)</div>
                         {selectedFile && (
                           <div style={{ marginTop: 8, color: '#2563eb', fontWeight: 500 }}>✓ Dipilih: {selectedFile.name}</div>
                         )}
@@ -1152,7 +1152,7 @@ export default function AdminPage({ user, onLogout }) {
                 </div>
               )}
               <p className="info-text">
-                Upload dokumen PDF/TXT/MD/DOCX. Embed ke Qdrant hanya untuk PDF/TXT/MD.
+                Upload dokumen PDF/TXT/MD/DOCX. Embed ke Qdrant mendukung PDF/TXT/MD/DOCX. Untuk Word (DOCX), konten tidak di-chunk dan disimpan sebagai satu vector.
               </p>
               <table className="data-table">
                 <thead>
@@ -1189,9 +1189,9 @@ export default function AdminPage({ user, onLogout }) {
                               onClick={() => {
                                 const name = (file.filename || '').toLowerCase();
                                 const ext = name.slice(name.lastIndexOf('.') >= 0 ? name.lastIndexOf('.') : name.length);
-                                const allowed = new Set(['.pdf', '.txt', '.md']);
+                                const allowed = new Set(['.pdf', '.txt', '.md', '.docx']);
                                 if (!allowed.has(ext)) {
-                                  showToast('Format file ini tidak dapat di-embed. Gunakan PDF/TXT/MD.', 'error', 4000);
+                                  showToast('Format file ini tidak dapat di-embed. Gunakan PDF/TXT/MD/DOCX.', 'error', 4000);
                                   return;
                                 }
                                 handleEmbedResource(file.filename);
