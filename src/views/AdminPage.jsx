@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import './AdminPage.css';
 
 // Use same-origin by default so Vite dev proxy (server.proxy) handles /api calls.
@@ -649,22 +650,7 @@ export default function AdminPage({ user, onLogout }) {
                     </div>
                   </div>
 
-                  {/* Tren Sentimen Harian */}
-                  {dashboard.sentimentDaily && dashboard.sentimentDaily.length > 0 && (
-                    <div className="dashboard-subsection" style={{ marginTop: '16px' }}>
-                      <h4>📅 Tren Sentimen Harian (14 hari)</h4>
-                      <div className="daily-messages">
-                        {dashboard.sentimentDaily.map((d, i) => (
-                          <div key={i} className="daily-item">
-                            <span>{new Date(d.date).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
-                            <span>
-                              <strong>+{d.positive}</strong> / <strong>{d.neutral}</strong> / <strong>-{d.negative}</strong>
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {/* Daily sentiment trend removed per request */}
 
                   {/* Umpan Balik Negatif Terbaru */}
                   {dashboard.recentNegativeFeedback && dashboard.recentNegativeFeedback.length > 0 && (
@@ -691,26 +677,32 @@ export default function AdminPage({ user, onLogout }) {
               {/* Penggunaan per Jam */}
               {dashboard.hourlyUsage && dashboard.hourlyUsage.length > 0 && (
                 <div className="dashboard-section">
-                  <h3>📊 Penggunaan Tertinggi per Jam</h3>
+                  <h3>📊 Penggunaan per Jam (Line Chart)</h3>
                   <p className="section-description">
                     {dashboard.peakHour 
-                      ? `Jam dengan penggunaan tertinggi: ${dashboard.peakHour.hourLabel} dengan ${dashboard.peakHour.count} messages`
+                      ? `Jam tertinggi: ${dashboard.peakHour.hourLabel} (${dashboard.peakHour.count} messages)`
                       : 'Statistik penggunaan per jam dalam 24 jam'}
                   </p>
-                  <div className="hourly-chart">
-                    {dashboard.hourlyUsage.map((h) => {
-                      const maxCount = Math.max(...dashboard.hourlyUsage.map(hu => hu.count));
-                      const percentage = maxCount > 0 ? (h.count / maxCount) * 100 : 0;
-                      const isPeak = dashboard.peakHour && h.hour === dashboard.peakHour.hour;
-                      return (
-                        <div key={h.hour} className={`hourly-bar ${isPeak ? 'peak' : ''}`}>
-                          <div className="hourly-bar-fill" style={{ height: `${percentage}%` }}>
-                            <span className="hourly-count">{h.count}</span>
-                          </div>
-                          <div className="hourly-label">{h.hourLabel}</div>
-                        </div>
-                      );
-                    })}
+                  <div style={{ width: '100%', height: 300 }}>
+                    <ResponsiveContainer>
+                      <LineChart
+                        data={dashboard.hourlyUsage.map(h => ({ hourLabel: h.hourLabel, count: h.count }))}
+                        margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="hourLabel" tick={{ fontSize: 12 }} interval={0} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                        <Tooltip formatter={(value) => [`${value} messages`, 'Count']} />
+                        <Line 
+                          type="monotone" 
+                          dataKey="count" 
+                          stroke="#ef4444" 
+                          strokeWidth={2} 
+                          dot={{ r: 3, stroke: '#ef4444', fill: '#ef4444' }} 
+                          activeDot={{ r: 5, stroke: '#ef4444', fill: '#ef4444' }} 
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
               )}
@@ -1089,7 +1081,7 @@ export default function AdminPage({ user, onLogout }) {
                       <div style={{ fontSize: 32 }}>📄</div>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontWeight: 600, color: '#111827' }}>Pilih dokumen untuk diupload</div>
-                        <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>Upload: PDF/TXT/MD/DOC/DOCX • Embed: PDF/TXT/MD</div>
+                        <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>Upload: PDF/TXT/MD/DOC/DOCX • Embed: PDF/TXT/MD/DOCX (Word disimpan 1 vector)</div>
                         {selectedFile && (
                           <div style={{ marginTop: 8, color: '#2563eb', fontWeight: 500 }}>✓ Dipilih: {selectedFile.name}</div>
                         )}
@@ -1152,7 +1144,7 @@ export default function AdminPage({ user, onLogout }) {
                 </div>
               )}
               <p className="info-text">
-                Upload dokumen PDF/TXT/MD/DOCX. Embed ke Qdrant hanya untuk PDF/TXT/MD.
+                Upload dokumen PDF/TXT/MD/DOCX. Embed ke Qdrant mendukung PDF/TXT/MD/DOCX. Untuk Word (DOCX), konten tidak di-chunk dan disimpan sebagai satu vector.
               </p>
               <table className="data-table">
                 <thead>
@@ -1189,9 +1181,9 @@ export default function AdminPage({ user, onLogout }) {
                               onClick={() => {
                                 const name = (file.filename || '').toLowerCase();
                                 const ext = name.slice(name.lastIndexOf('.') >= 0 ? name.lastIndexOf('.') : name.length);
-                                const allowed = new Set(['.pdf', '.txt', '.md']);
+                                const allowed = new Set(['.pdf', '.txt', '.md', '.docx']);
                                 if (!allowed.has(ext)) {
-                                  showToast('Format file ini tidak dapat di-embed. Gunakan PDF/TXT/MD.', 'error', 4000);
+                                  showToast('Format file ini tidak dapat di-embed. Gunakan PDF/TXT/MD/DOCX.', 'error', 4000);
                                   return;
                                 }
                                 handleEmbedResource(file.filename);

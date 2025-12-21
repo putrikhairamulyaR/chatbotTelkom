@@ -829,7 +829,7 @@ function parseTopicChoice(text) {
     t.includes('kelengkapan sidang') ||
     fuzzyIncludes(t, 'kelengkapan') ||
     fuzzyIncludes(t, 'sidang')
-  ) return 'kelengkapan sidang';
+  ) return 'Kelengkapan Sidang';
 
   if (
     t.includes('kompetisi') ||
@@ -1316,66 +1316,163 @@ router.post('/', async (req, res) => {
       }
     }
 
+    async function listUniqueMetadata(collectionName, fieldName) {
+      const qdrant = await createQdrantClient();
+      let allValues = new Set();
+      let nextOffset = null;
+
+      // Kita lakukan looping karena scroll memiliki limit per batch
+      do {
+        const response = await qdrant.scroll(collectionName, {
+          limit: 1000,
+          offset: nextOffset,
+          with_payload: [fieldName], // Hanya ambil field yang diinginkan (misal: 'topic')
+          with_vector: false
+        });
+
+        response.points.forEach(p => {
+          if (p.payload && p.payload[fieldName]) {
+            allValues.add(p.payload[fieldName]);
+          }
+        });
+
+        nextOffset = response.next_page_offset;
+      } while (nextOffset);
+
+      console.log(`Daftar Unik ${fieldName}:`, Array.from(allValues));
+      return Array.from(allValues);
+    }
+
+    listUniqueMetadata(CFG.QDRANT_COLLECTION, 'filename');
+
     peekMetadata(CFG.QDRANT_COLLECTION);
 
-    if (topic !== 'Belum ada' && isTemplateQuery(finalPrompt, topic)) {
-      // Ambil daftar file .docx untuk topik ini dari Qdrant
-      const qdrant = await createQdrantClient();
-      const COLLECTION = CFG.QDRANT_COLLECTION;
+    /* ==================== DIRECT FILE RETRIEVAL (.DOCX ONLY) ==================== */
 
-      // Filter untuk topik saat ini
-      const filter = buildDocFilter({ topic, filename: null });
+    if (topic && topic !== 'Belum ada' && isTemplateQuery(finalPrompt, topic)) {
+        try {
+            const qdrant = await createQdrantClient();
+            const COLLECTION = CFG.QDRANT_COLLECTION;
 
-      // Scroll untuk mendapatkan semua dokumen dengan topik ini
-      const sc = await qdrant.scroll(COLLECTION, {
-        limit: 1000, // Angka yang cukup besar, sesuaikan dengan kebutuhan
-        with_payload: true,
-        with_vector: false,
-        filter: filter || undefined,
-      });
+            const scrollResp = await qdrant.scroll(COLLECTION, {
+                filter: {
+                    must: [{ key: "topic", match: { value: topic } }]
+                },
+                limit: 5000, 
+                with_payload: true,
+                with_vector: false
+            });
 
-      const points = sc?.points || sc?.result?.points || sc?.result || [];
+            const uniqueFiles = new Map();
 
-      // Kumpulkan nama file unik yang berakhiran .docx
-      const docxFiles = new Set();
-      for (const p of points) {
-        const filename = p?.payload?.filename;
-        if (typeof filename === 'string' && filename.toLowerCase().endsWith('.docx')) {
-          docxFiles.add(filename);
+            if (scrollResp && scrollResp.points) {
+                for (const point of scrollResp.points) {
+                    const pay = point.payload;
+                    const fname = pay?.filename;
+
+                    // ATURAN BARU: Hanya ambil jika berakhiran .docx
+                    if (fname && fname.toLowerCase().endsWith('.docx')) {
+                        if (!uniqueFiles.has(fname)) {
+                            const safeName = encodeURIComponent(fname);
+                            const docUrl = CFG.PUBLIC_BASE_URL 
+                                ? `${CFG.PUBLIC_BASE_URL}/data/${safeName}` 
+                                : `/data/${safeName}`;
+                            
+                            uniqueFiles.set(fname, docUrl);
+                        }
+                    }
+                }
+            }
+
+            let answerMsg = '';
+
+            // ATURAN BARU: Jika tidak ada file .docx sama sekali
+            if (uniqueFiles.size === 0) {
+                answerMsg = `Maaf tidak tersedia template apapun terkait topic **${topic}**.`;
+            } else {
+                answerMsg = `Berikut adalah daftar template dokumen (.docx) untuk topik **${topic}**:\n\n`;
+                let i = 1;
+                uniqueFiles.forEach((url, name) => {
+                    answerMsg += `${i}. [${name}](${url})\n`;
+                    i++;
+                });
+            }
+
+            if (typeof persistMessage === 'function' && id_user) {
+                await persistMessage(id_user, 'bot', answerMsg, 'answer', null, null);
+            }
+
+            return res.json({ 
+                answer: answerMsg, 
+                sources: [], 
+                raw_hits: [],
+                topic: topic
+            });
+
+        } catch (err) {
+            console.error("Error in File Retrieval:", err);
+            return res.status(500).json({ error: "Gagal mengambil daftar file." });
         }
-      }
-
-      // Jika ada file .docx, buat daftar link
-      if (docxFiles.size > 0) {
-        const fileLinks = Array.from(docxFiles).map(filename => {
-          const url = CFG.PUBLIC_BASE_URL ? `${CFG.PUBLIC_BASE_URL}/data/${filename}` : `/data/${filename}`;
-          return `- [${filename}](${url})`;
-        }).join('\n');
-
-        const answer = `Berikut adalah template dokumen untuk topik ${topic}:\n\n${fileLinks}\n\nSilakan unduh melalui link di atas.`;
-        
-        await persistMessage(id_user, 'bot', answer, 'answer', null, null);
-        return res.json({
-          answer,
-          sources: [],
-          raw_hits: [],
-          metadata: analysis,
-          context_messages: recentDesc,
-          ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
-        });
-      } else {
-        const answer = `Maaf, tidak ditemukan template dokumen (file .docx) untuk topik ${topic}.`;
-        await persistMessage(id_user, 'bot', answer, 'answer', null, null);
-        return res.json({
-          answer,
-          sources: [],
-          raw_hits: [],
-          metadata: analysis,
-          context_messages: recentDesc,
-          ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
-        });
-      }
     }
+
+    // if (topic !== 'Belum ada' && isTemplateQuery(finalPrompt, topic)) {
+    //   // Ambil daftar file .docx untuk topik ini dari Qdrant
+    //   const qdrant = await createQdrantClient();
+    //   const COLLECTION = CFG.QDRANT_COLLECTION;
+
+    //   // Filter untuk topik saat ini
+    //   const filter = buildDocFilter({ topic, filename: null });
+
+    //   // Scroll untuk mendapatkan semua dokumen dengan topik ini
+    //   const sc = await qdrant.scroll(COLLECTION, {
+    //     limit: 1000, // Angka yang cukup besar, sesuaikan dengan kebutuhan
+    //     with_payload: true,
+    //     with_vector: false,
+    //     filter: filter || undefined,
+    //   });
+
+    //   const points = sc?.points || sc?.result?.points || sc?.result || [];
+
+    //   // Kumpulkan nama file unik yang berakhiran .docx
+    //   const docxFiles = new Set();
+    //   for (const p of points) {
+    //     const filename = p?.payload?.filename;
+    //     if (typeof filename === 'string' && filename.toLowerCase().endsWith('.docx')) {
+    //       docxFiles.add(filename);
+    //     }
+    //   }
+
+    //   // Jika ada file .docx, buat daftar link
+    //   if (docxFiles.size > 0) {
+    //     const fileLinks = Array.from(docxFiles).map(filename => {
+    //       const url = CFG.PUBLIC_BASE_URL ? `${CFG.PUBLIC_BASE_URL}/data/${filename}` : `/data/${filename}`;
+    //       return `- [${filename}](${url})`;
+    //     }).join('\n');
+
+    //     const answer = `Berikut adalah template dokumen untuk topik ${topic}:\n\n${fileLinks}\n\nSilakan unduh melalui link di atas.`;
+        
+    //     await persistMessage(id_user, 'bot', answer, 'answer', null, null);
+    //     return res.json({
+    //       answer,
+    //       sources: [],
+    //       raw_hits: [],
+    //       metadata: analysis,
+    //       context_messages: recentDesc,
+    //       ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
+    //     });
+    //   } else {
+    //     const answer = `Maaf, tidak ditemukan template dokumen (file .docx) untuk topik ${topic}.`;
+    //     await persistMessage(id_user, 'bot', answer, 'answer', null, null);
+    //     return res.json({
+    //       answer,
+    //       sources: [],
+    //       raw_hits: [],
+    //       metadata: analysis,
+    //       context_messages: recentDesc,
+    //       ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
+    //     });
+    //   }
+    // }
     
     console.log(`[RAG DEBUG] User: ${id_user}, Topic: ${topic}`);
     const filenameFilter = rawFilename ? String(rawFilename).trim() : null;
@@ -1801,7 +1898,17 @@ Tutup jawaban dengan:
     const COLLECTION = CFG.QDRANT_COLLECTION;
 
     console.log(COLLECTION);
-    const docFilter = buildDocFilter({ topic, filename: filenameFilter });
+    let docFilter = buildDocFilter({ topic, filename: filenameFilter });
+
+    // Tambahkan aturan filter PDF secara manual ke dalam docFilter
+    const pdfMatch = { key: "filename", match: { text: ".pdf" } };
+
+    if (!docFilter) {
+        docFilter = { must: [pdfMatch] };
+    } else {
+        if (!docFilter.must) docFilter.must = [];
+        docFilter.must.push(pdfMatch);
+    }
 
     tick('embed');
     const embedResp = await embedText(effectivePrompt);
@@ -1929,6 +2036,9 @@ Tutup jawaban dengan:
     console.log(language);
     let answer = '';
     if (CFG.ENABLE_RAG_GEN && contextBlocks.length > 0) {
+      console.log('RAG Generation enabled');
+      console.log(`Context blocks count: ${contextBlocks.length}`);
+      console.log(`Using model: ${CFG.OLLAMA_MODEL}`);
       tick('gen');
       try {
         const contextText = contextBlocks.join('\n\n---\n\n');

@@ -356,8 +356,8 @@ router.get('/dashboard', async (req, res) => {
     const [userCount] = await pool.query('SELECT COUNT(*) as count FROM `user`');
     const totalUsers = userCount[0]?.count || 0;
 
-    // 2. Total messages
-    const [msgCount] = await pool.query('SELECT COUNT(*) as count FROM conversation_memory');
+    // 2. Total messages (only user-submitted)
+    const [msgCount] = await pool.query("SELECT COUNT(*) as count FROM conversation_memory WHERE sender = 'user'");
     const totalMessages = msgCount[0]?.count || 0;
 
     // 3. Active users (last 7 days)
@@ -1172,11 +1172,11 @@ router.post('/resources/:filename/embed', async (req, res) => {
       return res.status(404).json({ error: 'File not found' });
     }
 
-    // Restrict embedding to PDF/TXT/MD only
+    // Restrict embedding to PDF/TXT/MD/DOCX
     const ext = path.extname(filename).toLowerCase();
-    const allowedForEmbed = new Set(['.pdf', '.txt', '.md']);
+    const allowedForEmbed = new Set(['.pdf', '.txt', '.md', '.docx']);
     if (!allowedForEmbed.has(ext)) {
-      return res.status(400).json({ error: 'Format file tidak didukung untuk embed. Gunakan PDF/TXT/MD.' });
+      return res.status(400).json({ error: 'Format file tidak didukung untuk embed. Gunakan PDF/TXT/MD/DOCX.' });
     }
 
     console.log(`[admin] Embedding ${filename} to Qdrant...`);
@@ -1227,7 +1227,7 @@ router.post('/resources/:filename/embed', async (req, res) => {
       return res.status(400).json({ error: 'No text could be extracted from the document' });
     }
 
-    // Chunk the text
+    // Chunk the text (PDF/TXT/MD); for DOCX, skip chunking and embed as single vector
     const CHUNK_SIZE = parseInt(process.env.CHUNK_SIZE || '1000', 10);
     const CHUNK_OVERLAP = parseInt(process.env.CHUNK_OVERLAP || '200', 10);
     const EMBED_TEXT_MAX = parseInt(process.env.EMBED_TEXT_MAX || '3500', 10);
@@ -1272,41 +1272,67 @@ router.post('/resources/:filename/embed', async (req, res) => {
     // Process and embed
     const points = [];
     let vectorSize = null;
-    for (let p = 0; p < extracted.pages.length; p++) {
-      const pageText = extracted.pages[p] || '';
-      const chunks = chunkWithOverlap(pageText, CHUNK_SIZE, CHUNK_OVERLAP);
-      
-      for (let ci = 0; ci < chunks.length; ci++) {
-        const cleaned = sanitizeForEmbed(chunks[ci]);
-        if (!cleaned || isLowSignal(cleaned)) continue;
+
+    if (extracted.type === 'docx') {
+      // For Word documents, treat as a single vector (no chunking)
+      const fullText = sanitizeForEmbed(extracted.pages.join('\n'));
+      if (!fullText || isLowSignal(fullText)) {
+        return res.status(400).json({ error: 'Dokumen Word tidak memiliki konten teks yang memadai untuk di-embed' });
+      }
+
+      const payloadText = fullText.slice(0, PAYLOAD_TEXT_MAX);
+      const embedText = fullText.slice(0, EMBED_TEXT_MAX);
+
+      const embedding = await getEmbedding(embedText);
+      if (Array.isArray(embedding)) vectorSize = embedding.length;
+
+      const payload = {
+        filename,
+        filepath: filePath,
+        source: 'admin_upload',
+        page: 1,
+        chunk_index: 1,
+        char_count: fullText.length,
+        text: payloadText,
+        snippet: fullText.slice(0, 450),
+        topic: topic || null,
+        subtopic: subtopic || null,
+      };
+
+      points.push({ id: randomUUID(), vector: embedding, payload });
+    } else {
+      for (let p = 0; p < extracted.pages.length; p++) {
+        const pageText = extracted.pages[p] || '';
+        const chunks = chunkWithOverlap(pageText, CHUNK_SIZE, CHUNK_OVERLAP);
         
-        const payloadText = cleaned.slice(0, PAYLOAD_TEXT_MAX);
-        const embedText = cleaned.slice(0, EMBED_TEXT_MAX);
-        
-        // Get embedding
-        const embedding = await getEmbedding(embedText);
-        if (vectorSize == null && Array.isArray(embedding)) {
-          vectorSize = embedding.length;
+        for (let ci = 0; ci < chunks.length; ci++) {
+          const cleaned = sanitizeForEmbed(chunks[ci]);
+          if (!cleaned || isLowSignal(cleaned)) continue;
+          
+          const payloadText = cleaned.slice(0, PAYLOAD_TEXT_MAX);
+          const embedText = cleaned.slice(0, EMBED_TEXT_MAX);
+          
+          // Get embedding
+          const embedding = await getEmbedding(embedText);
+          if (vectorSize == null && Array.isArray(embedding)) {
+            vectorSize = embedding.length;
+          }
+          
+          const payload = {
+            filename,
+            filepath: filePath,
+            source: 'admin_upload',
+            page: p + 1,
+            chunk_index: ci + 1,
+            char_count: cleaned.length,
+            text: payloadText,
+            snippet: cleaned.slice(0, 450),
+            topic: topic || null,
+            subtopic: subtopic || null,
+          };
+          
+          points.push({ id: randomUUID(), vector: embedding, payload });
         }
-        
-        const payload = {
-          filename,
-          filepath: filePath,
-          source: 'admin_upload',
-          page: p + 1,
-          chunk_index: ci + 1,
-          char_count: cleaned.length,
-          text: payloadText,
-          snippet: cleaned.slice(0, 450),
-          topic: topic || null,
-          subtopic: subtopic || null,
-        };
-        
-        points.push({
-          id: randomUUID(),
-          vector: embedding,
-          payload,
-        });
       }
     }
 
@@ -1345,7 +1371,9 @@ router.post('/resources/:filename/embed', async (req, res) => {
       success: true, 
       filename,
       chunks: totalUpserted,
-      message: `Successfully embedded ${totalUpserted} chunks to Qdrant` 
+      message: extracted.type === 'docx' 
+        ? 'Successfully embedded Word document as a single vector to Qdrant' 
+        : `Successfully embedded ${totalUpserted} chunks to Qdrant` 
     });
   } catch (err) {
     console.error('[admin] Embed resource error:', err);
