@@ -625,7 +625,7 @@ router.get('/users', async (req, res) => {
   try {
     const id_user = req.user?.id_user;
     const [rows] = await pool.query(
-      'SELECT id_user, username, nim, prodi, role, created_at FROM `user` ORDER BY created_at DESC'
+      'SELECT id_user, username, nim, email, prodi, role, created_at FROM `user` ORDER BY created_at DESC'
     );
     await logAudit(id_user, 'LIST_USERS', 'user', null, {}, req.ip, req.get('user-agent'));
     return res.json({ users: rows });
@@ -714,7 +714,26 @@ router.put('/users/:id', async (req, res) => {
     }
 
     if (email !== undefined) {
-      return res.status(400).json({ error: 'Email tidak dapat diubah' });
+      const currentRole = existing[0].role;
+      const targetRole = role !== undefined ? role : currentRole;
+
+      // Hanya izinkan perubahan email untuk user biasa, bukan admin
+      if (targetRole === 'admin') {
+        return res.status(400).json({ error: 'Email admin tidak dapat diubah' });
+      }
+
+      if (email) {
+        const [check] = await pool.query(
+          'SELECT id_user FROM `user` WHERE email = ? AND id_user != ?',
+          [email, targetId]
+        );
+        if (check.length > 0) {
+          return res.status(400).json({ error: 'Email sudah digunakan' });
+        }
+      }
+
+      updates.push('email = ?');
+      values.push(email || null);
     }
 
     if (password !== undefined && password.trim()) {

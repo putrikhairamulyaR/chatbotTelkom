@@ -352,10 +352,15 @@ export default function AdminPage({ user, onLogout }) {
     e.preventDefault();
     try {
       setSavingUser(true);
+      const payload = { ...userForm };
+      // Jika email di form kosong tapi user lama punya email, pakai email lama
+      if ((!payload.email || payload.email.trim() === '') && editingUser && editingUser.email) {
+        payload.email = editingUser.email;
+      }
       const res = await fetch(`${apiBase}/api/admin/users/${editingUser.id_user}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
-        body: JSON.stringify({ ...userForm }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -936,7 +941,7 @@ export default function AdminPage({ user, onLogout }) {
                         <label>Email</label>
                         <input
                           type="email"
-                          value={userForm.email}
+                          value={userForm.email !== '' ? userForm.email : (editingUser?.email || '')}
                           onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
                         />
                       </div>
