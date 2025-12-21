@@ -6,6 +6,87 @@ const fetch = globalThis.fetch || nodeFetch;
 import { pool } from '../db.js';
 import nlp from '../utils/nlp.js';
 import { verifyToken } from '../utils/jwt.js';
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+
+
+/* ==================== Service Directory Index ==================== */
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const ROOT_DIR = path.resolve(__dirname, "..", ".."); 
+const SERVICE_INDEX_PATH = path.resolve(ROOT_DIR, "data", "services.index.json");
+
+let SERVICE_INDEX = [];
+try {
+  if (fs.existsSync(SERVICE_INDEX_PATH)) {
+    SERVICE_INDEX = JSON.parse(fs.readFileSync(SERVICE_INDEX_PATH, "utf8")).services || [];
+  } else {
+    console.log("[service-index] not found:", SERVICE_INDEX_PATH);
+  }
+} catch (e) {
+  console.log("[service-index] load error:", SERVICE_INDEX_PATH, e.message);
+  SERVICE_INDEX = [];
+}
+
+const norm = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+// JANGAN pakai "menu" di sini (menu itu buat topik)
+const isServiceListRequest = (t) => {
+  const x = norm(t);
+  return x.includes("daftar layanan") || x.includes("daftar kontak") || x.includes("kontak layanan");
+};
+
+const isContactRequest = (t) =>
+  /kontak|nomor|no\b|telepon|wa|whatsapp|email|hubungi/i.test(String(t || ""));
+
+function findService(q) {
+  const t = norm(q);
+  if (!t) return null;
+
+  // exact key/name dulu
+  let hit = SERVICE_INDEX.find(s => norm(s.key) === t);
+  if (hit) return hit;
+
+  hit = SERVICE_INDEX.find(s => norm(s.name) === t);
+  if (hit) return hit;
+
+  // baru fallback partial
+  return (
+    SERVICE_INDEX.find(s => t.includes(norm(s.name)) || t.includes(norm(s.key))) ||
+    null
+  );
+}
+
+
+function listServicesReply() {
+  if (!SERVICE_INDEX.length) {
+    return "Maaf, daftar layanan belum tersedia (services.index.json belum terbaca).";
+  }
+  const lines = SERVICE_INDEX.map((s, i) => `${i + 1}. ${s.name}`);
+  return `Daftar Layanan:\n${lines.join("\n")}\n\nKetik nama layanan (contoh: "BSLA" / "Kemahasiswaan (BK)") untuk melihat kontaknya.`;
+}
+
+function renderServiceCard(s) {
+  const email = s?.contacts?.emails?.[0] || "(tidak tercantum)";
+  const phone = s?.contacts?.phones?.[0] || "(tidak tercantum)";
+  const website = s?.contacts?.websites?.[0] || "(tidak tercantum)";
+
+  return `**${s.name}**
+Deskripsi: ${s.desc || "-"}
+Email: ${email}
+Telepon/WA: ${phone}
+Website: ${website}`;
+}
+
+
 
 const router = express.Router();
 let topic = 'Belum ada';
@@ -1258,6 +1339,38 @@ router.post('/', async (req, res) => {
     if (language == 'english') {
       finalPrompt = await translateEnglishToIndonesian(prompt);
     }
+
+/* ==================== DIRECTORY SHORT-CIRCUIT ==================== */
+if (SERVICE_INDEX.length) {
+
+  // daftar layanan (tampilkan ringkas + bernomor)
+  if (isServiceListRequest(finalPrompt)) {
+    const list = SERVICE_INDEX
+      .slice(0, 12)
+      .map((s, i) => `${i + 1}. ${s.name}`)
+      .join("\n");
+
+    const answer =
+      `Daftar Layanan:\n${list}\n\n` +
+      `Ketik nama layanan untuk melihat kontaknya (contoh: "BSLA" / "Kemahasiswaan (BK)").`;
+
+    return res.json({ answer });
+  }
+
+  // user ketik nama layanan langsung ATAU minta kontak/nomor/email/wa
+  const svc = findService(finalPrompt);
+  const t = norm(finalPrompt);
+
+  if (svc) {
+    const isExactService = (t === norm(svc.name) || t === norm(svc.key));
+    const isShortQuery = t.split(" ").length <= 3;
+
+    if (isContactRequest(finalPrompt) || isExactService || isShortQuery) {
+      return res.json({ answer: renderServiceCard(svc) });
+    }
+  }
+}
+/* ==================== END DIRECTORY SHORT-CIRCUIT ==================== */
 
     const top_k = Number(rawTopK || CFG.TOP_K_DEFAULT);
     let id_user = rawIdUser ? Number(rawIdUser) : null;

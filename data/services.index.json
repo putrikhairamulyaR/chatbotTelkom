@@ -1,0 +1,271 @@
+{
+  "services": [
+    {
+      "number": 1,
+      "key": "bsla",
+      "name": "BSLA (dahulu BAA)",
+      "desc": "Informasi terkait akademik, wisuda, legalisasi, dan registrasi.",
+      "contacts": {
+        "emails": [
+          "baa@telkomuniversity.ac.id"
+        ],
+        "phones": [],
+        "websites": [
+          "telkomuniversity.ac.id",
+          "linktr.ee/bsla_univtelkom"
+        ]
+      }
+    },
+    {
+      "number": 3,
+      "key": "bpa",
+      "name": "BPA (Bagian Pengembangan Akademik)",
+      "desc": "Informasi terkait Kampus Merdeka dan program MBKM.",
+      "contacts": {
+        "emails": [
+          "kampusmerdeka@telkomuniversity.ac.id"
+        ],
+        "phones": [],
+        "websites": [
+          "telkomuniversity.ac.id",
+          "tel-u.ac.id/kampusmerdekatelu"
+        ]
+      }
+    },
+    {
+      "number": 4,
+      "key": "keuangan_mahasiswa",
+      "name": "Keuangan Mahasiswa",
+      "desc": "Informasi pembayaran, tagihan, dan tata cara pembayaran.",
+      "contacts": {
+        "emails": [
+          "finance@telkomuniversity.ac.id"
+        ],
+        "phones": [],
+        "websites": [
+          "telkomuniversity.ac.id",
+          "finance.telkomuniversity.ac.id"
+        ]
+      }
+    },
+    {
+      "number": 5,
+      "key": "kemahasiswaan",
+      "name": "Kemahasiswaan (BK)",
+      "desc": "Informasi beasiswa, TAK, SKPI, asrama, dan PKKMB.",
+      "contacts": {
+        "emails": [
+          "bktelu@telkomuniversity.ac.id"
+        ],
+        "phones": [],
+        "websites": [
+          "telkomuniversity.ac.id",
+          "linktr.ee/ditmawa_univtelkom"
+        ]
+      }
+    },
+    {
+      "number": 6,
+      "key": "open_library",
+      "name": "Open Library (Perpustakaan)",
+      "desc": "Informasi peminjaman buku, jurnal, dan layanan perpustakaan.",
+      "contacts": {
+        "emails": [
+          "library@telkomuniversity.ac.id"
+        ],
+        "phones": [],
+        "websites": [
+          "telkomuniversity.ac.id",
+          "openlibrary.telkomuniversity.ac.id"
+        ]
+      }
+    },
+    {
+      "number": 7,
+      "key": "career_development_center",
+      "name": "Career Development Center (CDC)",
+      "desc": "Tracer study dan informasi lowongan pekerjaan.",
+      "contacts": {
+        "emails": [
+          "cdc@telkomuniversity.ac.id"
+        ],
+        "phones": [],
+        "websites": [
+          "telkomuniversity.ac.id",
+          "cdc.telkomuniversity.ac.id"
+        ]
+      }
+    },
+    {
+      "number": 8,
+      "key": "smb",
+      "name": "SMB (Seleksi Mahasiswa Baru)",
+      "desc": "Informasi pendaftaran dan penerimaan mahasiswa baru.",
+      "contacts": {
+        "emails": [
+          "info@smbbtelkom.ac.id"
+        ],
+        "phones": [],
+        "websites": [
+          "smbbtelkom.ac.id",
+          "smb.telkomuniversity.ac.id"
+        ]
+      }
+    },
+    {
+      "number": 9,
+      "key": "language_and_culture_center",
+      "name": "Language and Culture Center (LAC)",
+      "desc": "Pendaftaran kursus dan tes bahasa seperti EPRT, TOEFL, dan IELTS.",
+      "contacts": {
+        "emails": [
+          "lac@telkomuniversity.ac.id"
+        ],
+        "phones": [],
+        "websites": [
+          "telkomuniversity.ac.id",
+          "lac.telkomuniversity.ac.id"
+        ]
+      }
+    },
+    {
+      "number": 10,
+      "key": "logistik",
+      "name": "Logistik",
+      "desc": "Kendala RFID gerbang kampus dan peminjaman ruangan.",
+      "contacts": {
+        "emails": [],
+        "phones": [],
+        "websites": [
+          "logistik.telkomuniversity.ac.id"
+        ]
+      }
+    },
+    {
+      "number": 11,
+      "key": "toss",
+      "name": "TOSS (Tel-U One Stop Service)",
+      "desc": "Permintaan surat mahasiswa aktif, surat dispensasi, surat rekomendasi mahasiswa, dan surat  pernyataan kelakuan baik.",
+      "contacts": {
+        "emails": [],
+        "phones": [],
+        "websites": [
+          "linktr.ee/toss.telu",
+          "toss.telkomuniversity.ac.id"
+        ]
+      }
+    },
+    {
+      "number": 12,
+      "key": "direktorat_sdm",
+      "name": "Direktorat SDM",
+      "desc": "Layanan kepegawaian.",
+      "contacts": {
+        "emails": [
+          "yansdm@telkomuniversity.ac.id",
+          "hr@telkomuniversity.ac.id",
+          "bangtensi@telkomuniversity.ac.id",
+          "pranbudsdm@telkomuniversity.ac.id"
+        ],
+        "phones": [],
+        "websites": [
+          "telkomuniversity.ac.id",
+          "hr.telkomuniversity.ac.id"
+        ]
+      }
+    },
+    {
+      "number": 13,
+      "key": "direktorat_ppm",
+      "name": "Direktorat PPM",
+      "desc": "Informasi penelitian dan pengabdian kepada masyarakat.",
+      "contacts": {
+        "emails": [],
+        "phones": [],
+        "websites": [
+          "ppm.telkomuniversity.ac.id"
+        ]
+      }
+    },
+    {
+      "number": 14,
+      "key": "lms_dan_celoe",
+      "name": "LMS dan CeLOE",
+      "desc": "Layanan aplikasi pembelajaran daring.",
+      "contacts": {
+        "emails": [],
+        "phones": [],
+        "websites": []
+      }
+    },
+    {
+      "number": 15,
+      "key": "helpdesk_ypt",
+      "name": "Helpdesk YPT",
+      "desc": "Aplikasi NDE dan portal YPT.",
+      "contacts": {
+        "emails": [],
+        "phones": [
+          "082240021192"
+        ],
+        "websites": []
+      }
+    },
+    {
+      "number": 17,
+      "key": "ticketing_puti",
+      "name": "Ticketing PuTI",
+      "desc": "Pelaporan kendala IT pada aplikasi atau layanan yang dikelola Direktorat PuTI.",
+      "contacts": {
+        "emails": [],
+        "phones": [],
+        "websites": [
+          "satu.telkomuniversity.ac.id"
+        ]
+      }
+    },
+    {
+      "number": 18,
+      "key": "info_telkom_university",
+      "name": "Info Telkom University",
+      "desc": "Informasi pengajuan seminar dan kunjungan di lingkungan Telkom University.",
+      "contacts": {
+        "emails": [
+          "info@telkomuniversity.ac.id"
+        ],
+        "phones": [],
+        "websites": [
+          "telkomuniversity.ac.id"
+        ]
+      }
+    },
+    {
+      "number": 19,
+      "key": "satuan_audit_internal",
+      "name": "Satuan Audit Internal",
+      "desc": "Pengajuan sertifikasi dan aplikasi suaratelutizen.",
+      "contacts": {
+        "emails": [],
+        "phones": [
+          "082120059376"
+        ],
+        "websites": []
+      }
+    },
+    {
+      "number": 20,
+      "key": "p3i",
+      "name": "P3I (Perencanaan, Pengembangan, dan Pengendalian Performansi Institusi)",
+      "desc": "Pengelolaan performansi Telkom University.",
+      "contacts": {
+        "emails": [],
+        "phones": [
+          "082295230805"
+        ],
+        "websites": [
+          "p3i.telkomuniversity.ac.id"
+        ]
+      }
+    }
+  ]
+}
