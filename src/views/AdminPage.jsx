@@ -439,7 +439,6 @@ export default function AdminPage({ user, onLogout }) {
     if (!file) return;
 
     // Allow uploading broader document types; embed will be restricted later.
-
     try {
       setUploading(true);
       const formData = new FormData();
@@ -826,7 +825,7 @@ export default function AdminPage({ user, onLogout }) {
                         <th>Rank</th>
                         <th>Username</th>
                         <th>Email</th>
-                        <th>Total Messages</th>
+                        <th>Total Pesan</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -848,7 +847,7 @@ export default function AdminPage({ user, onLogout }) {
               {/* Login Failures Overview (list, placed at bottom) */}
               {sortedLoginFailureSummary && sortedLoginFailureSummary.length > 0 && (
                 <div className="dashboard-section">
-                  <h3>🔐 Recap Gagal Login</h3>
+                  <h3>🔐 Rekap Gagal Login</h3>
                   <table className="data-table">
                     <thead>
                       <tr>
@@ -1002,8 +1001,8 @@ export default function AdminPage({ user, onLogout }) {
                     <th>Email</th>
                     <th>Prodi</th>
                     <th>Role</th>
-                    <th>Created At</th>
-                    <th>Actions</th>
+                    <th>DIbuat pada</th>
+                    <th>Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1050,7 +1049,7 @@ export default function AdminPage({ user, onLogout }) {
                     onChange={(e) => setAuditSortBy(e.target.value)}
                     style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 6 }}
                   >
-                    <option value="timestamp">Timestamp</option>
+                    <option value="timestamp">Waktu Tercatat</option>
                     <option value="user">User (A-Z)</option>
                   </select>
                 </div>
@@ -1060,10 +1059,10 @@ export default function AdminPage({ user, onLogout }) {
                   <tr>
                     <th>ID</th>
                     <th>User</th>
-                    <th>Action</th>
+                    <th>Aksi</th>
                     <th>Resource Type</th>
-                    <th>Details</th>
-                    <th>Timestamp</th>
+                    <th>Detail</th>
+                    <th>Waktu Tercatat</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1140,7 +1139,7 @@ export default function AdminPage({ user, onLogout }) {
               <div className="section-header">
                 <h2>Pengaturan Sumber Daya</h2>
                 <button className="btn-primary" onClick={() => setShowUploadPanel(true)}>
-                  + Upload Dokumen
+                  + Tambah Dokumen
                 </button>
               </div>
 
@@ -1210,7 +1209,7 @@ export default function AdminPage({ user, onLogout }) {
                         onClick={handleSubmitUpload}
                         disabled={uploading || !selectedFile}
                       >
-                        {uploading ? 'Mengunggah...' : 'Upload'}
+                        {uploading ? 'Mengunggah...' : 'Tambah'}
                       </button>
                       <button
                         type="button"
