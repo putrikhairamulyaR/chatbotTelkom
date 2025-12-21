@@ -483,6 +483,25 @@ router.get('/dashboard', async (req, res) => {
        ORDER BY date DESC`
     );
 
+    // 8a. Login failures per day (last 7 days)
+    const [loginFailDaily] = await pool.query(
+      `SELECT DATE(created_at) as date, COUNT(*) as count
+       FROM login_fail_log
+       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+       GROUP BY DATE(created_at)
+       ORDER BY date`
+    );
+
+    // 8a-2. Login failures per day for unknown users (no matched username/email)
+    const [loginFailUnknownDaily] = await pool.query(
+      `SELECT DATE(created_at) as date, COUNT(*) as count
+       FROM login_fail_log
+       WHERE user_id IS NULL
+         AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+       GROUP BY DATE(created_at)
+       ORDER BY date`
+    );
+
     // 8b. Sentiment overview (user messages)
     const [sentimentRows] = await pool.query(
       `SELECT sentiment_label as label, COUNT(*) as count
@@ -585,6 +604,8 @@ router.get('/dashboard', async (req, res) => {
       // Other stats
       dailyMessages,
       topUsers,
+      loginFailDaily,
+      loginFailUnknownDaily,
       qdrantStats,
       // Satisfaction & sentiment
       sentimentOverview,
@@ -827,7 +848,8 @@ router.get('/login-failures', async (req, res) => {
     const [summary] = await pool.query(
       `SELECT COALESCE(u.username, l.key_id) AS user_key,
               DATE_FORMAT(l.created_at, '%Y-%m-%d %H:00:00') AS hour,
-              COUNT(*) AS count
+              COUNT(*) AS count,
+              SUM(CASE WHEN l.user_id IS NULL THEN 1 ELSE 0 END) AS unknown_count
          FROM login_fail_log l
     LEFT JOIN \`user\` u ON u.id_user = l.user_id
         WHERE l.created_at >= (NOW() - INTERVAL ? HOUR)

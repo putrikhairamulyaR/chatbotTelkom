@@ -236,6 +236,25 @@ router.get('/', async (req, res) => {
        ORDER BY date`
     );
 
+    // 8a. Login failures per day (last 7 days)
+    const [loginFailDaily] = await pool.query(
+      `SELECT DATE(created_at) as date, COUNT(*) as count
+       FROM login_fail_log
+       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+       GROUP BY DATE(created_at)
+       ORDER BY date`
+    );
+
+    // 8a-2. Login failures per day for unknown users (no matched username/email)
+    const [loginFailUnknownDaily] = await pool.query(
+      `SELECT DATE(created_at) as date, COUNT(*) as count
+       FROM login_fail_log
+       WHERE user_id IS NULL
+         AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+       GROUP BY DATE(created_at)
+       ORDER BY date`
+    );
+
     // 9. Sentiment distribution
     const [sentimentDist] = await pool.query(
       `SELECT 
@@ -284,6 +303,8 @@ router.get('/', async (req, res) => {
         label: item.sentiment_label,
         count: item.count,
       })),
+      loginFailDaily: loginFailDaily.map(item => ({ date: item.date, count: item.count })),
+      loginFailUnknownDaily: loginFailUnknownDaily.map(item => ({ date: item.date, count: item.count })),
       mostActiveUsers: mostActiveUsers.map(item => ({
         username: item.username,
         email: item.email,

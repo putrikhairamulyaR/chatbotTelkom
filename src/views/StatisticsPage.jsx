@@ -161,48 +161,46 @@ export default function StatisticsPage({ user, onBack, onLogout }) {
           </div>
         </div>
 
-        {/* Daily Usage Chart */}
-        {dailyData.length > 0 && (
+        {/* Login Failures Chart (7 days) */}
+        {((stats.loginFailDaily || []).length > 0 || (stats.loginFailUnknownDaily || []).length > 0) && (
           <div className="stats-section">
-            <h2>Penggunaan 7 Hari Terakhir</h2>
+            <h2>Kegagalan Login (7 hari terakhir)</h2>
             <div className="chart-container">
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={dailyData}>
+                <LineChart
+                  data={(function () {
+                    const m = new Map();
+                    (stats.loginFailDaily || []).forEach(r => {
+                      const d = String(r.date);
+                      m.set(d, { date: d, total: Number(r.count || 0), unknown: 0 });
+                    });
+                    (stats.loginFailUnknownDaily || []).forEach(r => {
+                      const d = String(r.date);
+                      const curr = m.get(d) || { date: d, total: 0, unknown: 0 };
+                      curr.unknown = Number(r.count || 0);
+                      m.set(d, curr);
+                    });
+                    return Array.from(m.values())
+                      .sort((a, b) => new Date(a.date) - new Date(b.date))
+                      .map(x => ({
+                        dateLabel: new Date(x.date).toLocaleDateString('id-ID', {
+                          weekday: 'short',
+                          day: 'numeric',
+                          month: 'short',
+                        }),
+                        total: x.total,
+                        unknown: x.unknown,
+                      }));
+                  })()}
+                >
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" />
+                  <XAxis dataKey="dateLabel" />
                   <YAxis />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="count" fill="#00C49F" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-
-        {/* Sentiment Distribution */}
-        {stats.sentimentDistribution.length > 0 && (
-          <div className="stats-section">
-            <h2>Distribusi Sentimen</h2>
-            <div className="chart-container">
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={stats.sentimentDistribution}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ label, percent }) => `${label}: ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="count"
-                  >
-                    {stats.sentimentDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
+                  <Line type="monotone" dataKey="total" name="Total gagal" stroke="#ef4444" strokeWidth={2} />
+                  <Line type="monotone" dataKey="unknown" name="Gagal (user tidak dikenal)" stroke="#f97316" strokeWidth={2} />
+                </LineChart>
               </ResponsiveContainer>
             </div>
           </div>

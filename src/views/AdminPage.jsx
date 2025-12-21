@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import './AdminPage.css';
 
 // Use same-origin by default so Vite dev proxy (server.proxy) handles /api calls.
@@ -36,6 +36,7 @@ export default function AdminPage({ user, onLogout }) {
   const [users, setUsers] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [loginLocks, setLoginLocks] = useState([]);
+  const [loginFailureSummary, setLoginFailureSummary] = useState([]);
   const [resources, setResources] = useState([]);
   // Users: search term
   const [userSearch, setUserSearch] = useState('');
@@ -140,6 +141,7 @@ export default function AdminPage({ user, onLogout }) {
     
     if (activeTab === 'dashboard') {
       fetchDashboard();
+      fetchLoginFailureSummary();
     } else if (activeTab === 'users') {
       fetchUsers();
     } else if (activeTab === 'audit') {
@@ -173,6 +175,25 @@ export default function AdminPage({ user, onLogout }) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchLoginFailureSummary = async () => {
+    try {
+      if (!user || !user.id_user) {
+        throw new Error('User not authenticated. Please login again.');
+      }
+      const res = await fetch(`${apiBase}/api/admin/login-failures?hours=168&limit=200`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Failed to fetch login failures' }));
+        throw new Error(errorData.error || `HTTP ${res.status}: Failed to fetch login failures`);
+      }
+      const data = await res.json();
+      setLoginFailureSummary(data.summary || []);
+    } catch (err) {
+      console.error('Error fetching login failure summary:', err);
     }
   };
 
@@ -498,6 +519,31 @@ export default function AdminPage({ user, onLogout }) {
 
   const [showMenu, setShowMenu] = useState(false);
 
+  const sortedLoginFailureSummary = useMemo(() => {
+    if (!loginFailureSummary || loginFailureSummary.length === 0) return [];
+    const copy = [...loginFailureSummary];
+    copy.sort((a, b) => {
+      const ua = Number(a.unknown_count || 0);
+      const ub = Number(b.unknown_count || 0);
+      const aIsDash = !a.user_key || a.user_key === '-';
+      const bIsDash = !b.user_key || b.user_key === '-';
+
+      const priA = aIsDash ? 0 : ua > 0 ? 1 : 2;
+      const priB = bIsDash ? 0 : ub > 0 ? 1 : 2;
+      if (priA !== priB) return priA - priB;
+
+      const cA = Number(a.count || 0);
+      const cB = Number(b.count || 0);
+      if (cA !== cB) return cB - cA;
+
+      const tA = new Date(a.hour).getTime();
+      const tB = new Date(b.hour).getTime();
+      if (!Number.isNaN(tA) && !Number.isNaN(tB) && tA !== tB) return tB - tA;
+      return String(a.user_key || '').localeCompare(String(b.user_key || ''));
+    });
+    return copy;
+  }, [loginFailureSummary]);
+
   return (<>
     <div className="admin-container">
       <header className="admin-header">
@@ -744,7 +790,7 @@ export default function AdminPage({ user, onLogout }) {
                       <tr>
                         <th>Rank</th>
                         <th>Nama Dokumen</th>
-                        <th>Jumlah Akses</th>
+                        <th>Total Chunks</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -794,20 +840,53 @@ export default function AdminPage({ user, onLogout }) {
                 </div>
               )}
 
-              {/* Daily Messages */}
-              {dashboard.dailyMessages && dashboard.dailyMessages.length > 0 && (
+              {/* Login Failures Overview (list, placed at bottom) */}
+              {sortedLoginFailureSummary && sortedLoginFailureSummary.length > 0 && (
                 <div className="dashboard-section">
-                  <h3>📅 Messages per Hari (7 hari terakhir)</h3>
-                  <div className="daily-messages">
-                    {dashboard.dailyMessages.map((d, i) => (
-                      <div key={i} className="daily-item">
-                        <span>{new Date(d.date).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
-                        <span><strong>{d.count}</strong> messages</span>
-                      </div>
-                    ))}
-                  </div>
+                  <h3>🔐 Recap Gagal Login</h3>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>No</th>
+                        <th>Username / Key</th>
+                        <th>Jam</th>
+                        <th>Jumlah Gagal</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedLoginFailureSummary.map((row, idx) => {
+                        const isUnknownDash = !row.user_key || row.user_key === '-' || row.user_key === null;
+                        let timeLabel = row.hour;
+                        try {
+                          const d = new Date(row.hour);
+                          if (!Number.isNaN(d.getTime())) {
+                            timeLabel = d.toLocaleString('id-ID', {
+                              weekday: 'short',
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            });
+                          }
+                        } catch {}
+                        return (
+                          <tr
+                            key={`${row.user_key}-${row.hour}-${idx}`}
+                            className={isUnknownDash ? 'row-alert' : ''}
+                          >
+                            <td>#{idx + 1}</td>
+                            <td>{row.user_key || '-'}</td>
+                            <td>{timeLabel}</td>
+                            <td><strong>{row.count}</strong>x</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
+
             </div>
           )}
 
@@ -1030,14 +1109,16 @@ export default function AdminPage({ user, onLogout }) {
                 </thead>
                 <tbody>
                   {loginLocks.map((l, idx) => (
-                    <tr key={idx}>
-                      <td>{l.username || l.key_id || l.user_id || '-'}</td>
-                      <td>{l.email || '-'}</td>
-                      <td>{l.fail_count}</td>
-                      <td>{l.last_fail ? new Date(l.last_fail).toLocaleString('id-ID') : '-'}</td>
-                      <td>{l.locked_until ? new Date(l.locked_until).toLocaleString('id-ID') : '-'}</td>
-                      <td>{l.minutes_remaining || 0}</td>
-                    </tr>
+                    <tr
+                      key={idx}
+                      className={!l.username && (!l.email || l.email === '-') && l.fail_count > 0 ? 'row-alert' : ''}>
+                       <td>{l.username || l.key_id || l.user_id || '-'}</td>
+                       <td>{l.email || '-'}</td>
+                       <td>{l.fail_count}</td>
+                       <td>{l.last_fail ? new Date(l.last_fail).toLocaleString('id-ID') : '-'}</td>
+                       <td>{l.locked_until ? new Date(l.locked_until).toLocaleString('id-ID') : '-'}</td>
+                       <td>{l.minutes_remaining || 0}</td>
+                     </tr>
                   ))}
                   {loginLocks.length === 0 && (
                     <tr>

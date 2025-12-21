@@ -65,7 +65,8 @@ export default function App() {
         return { ok: false, error: 'Server tidak mengembalikan ID user. Silakan coba lagi.' };
       }
 
-      console.log('[App] Login successful:', { id_user: data.id_user, username: data.username, role: data.role });
+      // Jangan log detail user sukses login ke console di production
+      // console.log('[App] Login successful:', { id_user: data.id_user, username: data.username, role: data.role });
       // Persist token for session use (optional)
       try { if (data?.token) localStorage.setItem('auth_token', data.token); } catch {}
       setUser(data); // <-- Login sukses (includes token)

@@ -2,6 +2,14 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
 .layout {
   display: flex;
   height: 100vh;

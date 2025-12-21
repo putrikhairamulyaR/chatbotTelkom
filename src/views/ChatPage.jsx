@@ -3,36 +3,154 @@ import './ChatPage.css';
 
 const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
-// Helper function to convert markdown links to clickable links
+// Helper: apply **bold** formatting inside plain text
+function applyBoldFormatting(text) {
+    if (!text) return text;
+    const boldRegex = /\*\*(.+?)\*\*/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+    let boldIndex = 0;
+
+    while ((match = boldRegex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+            parts.push(text.substring(lastIndex, match.index));
+        }
+        parts.push(
+            <strong key={`bold-${boldIndex++}`}>
+                {match[1]}
+            </strong>
+        );
+        lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < text.length) {
+        parts.push(text.substring(lastIndex));
+    }
+
+    return parts.length > 0 ? parts : text;
+}
+
+// Helper: within a plain text segment, detect raw URLs and make them clickable,
+// while still applying **bold** formatting to surrounding text.
+function renderPlainWithUrlsAndBold(segment) {
+    if (!segment) return segment;
+
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const nodes = [];
+    let lastIndex = 0;
+    let match;
+    let urlIndex = 0;
+
+    while ((match = urlRegex.exec(segment)) !== null) {
+        if (match.index > lastIndex) {
+            let before = segment.substring(lastIndex, match.index);
+            // Jika sebelum URL ada tanda '<' pembuka markdown <https://...>, buang saja
+            if (before.endsWith('<')) {
+                before = before.slice(0, -1);
+            }
+            const boldedBefore = applyBoldFormatting(before);
+            if (Array.isArray(boldedBefore)) {
+                nodes.push(...boldedBefore);
+            } else {
+                nodes.push(boldedBefore);
+            }
+        }
+
+        // Trim common trailing punctuation (e.g. >, ), .) from the URL
+        let urlText = match[1];
+        const trimmed = urlText.replace(/[)>.,!?;:]+$/g, '');
+        const trailing = urlText.slice(trimmed.length);
+        urlText = trimmed;
+
+        nodes.push(
+            <a
+                key={`url-${urlIndex++}`}
+                href={urlText}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: '#2563eb', textDecoration: 'underline' }}
+            >
+                {urlText}
+            </a>
+        );
+
+        if (trailing) {
+            const boldedTrailing = applyBoldFormatting(trailing);
+            if (Array.isArray(boldedTrailing)) {
+                nodes.push(...boldedTrailing);
+            } else {
+                nodes.push(boldedTrailing);
+            }
+        }
+
+        lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < segment.length) {
+        const rest = segment.substring(lastIndex);
+        const boldedRest = applyBoldFormatting(rest);
+        if (Array.isArray(boldedRest)) {
+            nodes.push(...boldedRest);
+        } else {
+            nodes.push(boldedRest);
+        }
+    }
+
+    return nodes.length > 0 ? nodes : segment;
+}
+
+// Helper function to convert markdown links to clickable links and **bold** to <strong>
 function renderTextWithLinks(text) {
     if (!text) return text;
-    
+
+    // Normalize markdown heading: "### Judul" -> "=== Judul ===" dengan bold di dalamnya
+    const normalizedText = text.replace(/^###\s*(.+)$/gm, '=== **$1** ===');
+
     // Convert markdown links [text](url) to HTML links
     const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
     const parts = [];
     let lastIndex = 0;
     let match;
     
-    while ((match = linkRegex.exec(text)) !== null) {
-        // Add text before the link
+    while ((match = linkRegex.exec(normalizedText)) !== null) {
+        // Add text before the link, with bold formatting
         if (match.index > lastIndex) {
-            parts.push(text.substring(lastIndex, match.index));
+            const beforeText = normalizedText.substring(lastIndex, match.index);
+            const formattedBefore = renderPlainWithUrlsAndBold(beforeText);
+            if (Array.isArray(formattedBefore)) {
+                parts.push(...formattedBefore);
+            } else {
+                parts.push(formattedBefore);
+            }
         }
-        // Add the link
+        // Add the link (label can also contain **bold**)
+        const labelFormatted = applyBoldFormatting(match[1]);
         parts.push(
             <a key={match.index} href={match[2]} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'underline' }}>
-                {match[1]}
+                {labelFormatted}
             </a>
         );
         lastIndex = match.index + match[0].length;
     }
     
-    // Add remaining text
-    if (lastIndex < text.length) {
-        parts.push(text.substring(lastIndex));
+    // Add remaining text with bold formatting and URL detection
+    if (lastIndex < normalizedText.length) {
+        const remaining = normalizedText.substring(lastIndex);
+        const formattedRemaining = renderPlainWithUrlsAndBold(remaining);
+        if (Array.isArray(formattedRemaining)) {
+            parts.push(...formattedRemaining);
+        } else {
+            parts.push(formattedRemaining);
+        }
     }
     
-    return parts.length > 0 ? parts : text;
+    // If there were no markdown links, still process URLs and bold in the whole text
+    if (parts.length === 0) {
+        return renderPlainWithUrlsAndBold(normalizedText);
+    }
+
+    return parts;
 }
 
 // Helper functions untuk localStorage (per-user namespace)

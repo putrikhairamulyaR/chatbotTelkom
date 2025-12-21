@@ -1,4 +1,3 @@
-
 .admin-container {
   min-height: 100vh;
   background: #f7f8fb;
@@ -409,6 +408,14 @@
 
 .data-table tbody tr:hover {
   background: #f9fafb;
+}
+
+/* Alert rows for login-locks */
+.data-table tbody tr.row-alert {
+  background: #fee2e2; /* soft red */
+}
+.data-table tbody tr.row-alert:hover {
+  background: #fecaca; /* stronger on hover */
 }
 
 /* Buttons */
