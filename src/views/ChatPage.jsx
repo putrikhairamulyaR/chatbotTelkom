@@ -115,17 +115,45 @@ const filteredMessages = messages.filter(msg =>
 // Create new chat
 const handleNewChat = () => {
     const newId = `chat-${Date.now()}`;
+
     const newConv = {
         id: newId,
         title: 'New Chat',
-        messages: [],
+        messages: [
+            {
+                id: Date.now(),
+                sender: 'bot',
+                text: `Halo! Saya asisten chatbot yang siap membantu Anda.
+
+Topik yang tersedia:
+
+  - Asisten Praktikum Dan Praktikum
+  - Daftar Layanan Yang tersedia
+  - informasi FIT
+  - Kode Etik dan Aturan
+  - Kelengkapan Sidang
+  - Kompetisi
+  - Magang
+  - Organisasi
+  - Perubahan data mahasiswa
+  - Penilaian Wisudawan berprestasi
+  - SKL
+  - surat Keterangan Aktif
+  - TAK
+  - Tugas Akhir`
+            }
+        ],
+        hasUserMessage: false,
         createdAt: Date.now()
     };
+
     const updated = { ...conversations, [newId]: newConv };
+
     setConversations(updated);
     setCurrentChatId(newId);
     saveConversationsByKey(storageKey, updated);
 };
+
 
 // Switch to a different chat
 const handleSelectChat = (chatId) => {
@@ -163,19 +191,23 @@ const handleSend = (e, overrideText = null) => {
         // Update messages with fresh state
         setConversations(prev => {
             const updated = { ...prev };
-            if (!updated[currentChatId]) return prev;
-            
-            if (!updated[currentChatId].messages || updated[currentChatId].messages.length === 0) {
-                // First message in this chat - update title
+            const conv = updated[currentChatId];
+            if (!conv) return prev;
+
+            if (!conv.hasUserMessage) {
                 if (userInput.length <= 50) {
-                    updated[currentChatId].title = userInput;
+                    conv.title = userInput;
                 }
+                conv.hasUserMessage = true;
             }
-            updated[currentChatId].messages = [...(updated[currentChatId].messages || []), userMsg];
-            updated[currentChatId].updatedAt = Date.now();
+
+            conv.messages = [...(conv.messages || []), userMsg];
+            conv.updatedAt = Date.now();
+
             saveConversationsByKey(storageKey, updated);
             return updated;
         });
+
         
         if (!overrideText) {
             setInput('');
@@ -311,12 +343,12 @@ return (
         <aside className="chat-sidebar">
             <div className="brand">Chat</div>
             <button className="new-chat-btn" onClick={handleNewChat}>
-                Obrolan baru
+                + New Chat
             </button>
             <div className="sidebar-search">
                 <input
                     type="text"
-                    placeholder="Cari obrolan..."
+                    placeholder="Search chat..."
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                 />
@@ -333,7 +365,7 @@ return (
                         <button 
                             className="delete-chat-btn"
                             onClick={(e) => handleDeleteChat(e, conv.id)}
-                            title="Hapus chat"
+                            title="Delete chat"
                         >
                             ×
                         </button>
@@ -352,6 +384,7 @@ return (
                 >
                     <span className="avatar">{(user?.username || user?.email || 'U')[0].toUpperCase()}</span>
                     <span className="profile-name">{user?.username || user?.email}</span>
+                    <span className="dropdown-icon">{showMenu ? "▲" : "▼"}</span>
                 </div>
 
                 {showMenu && (
@@ -363,7 +396,7 @@ return (
                                 if (onLogout) onLogout();
                             }}
                         >
-                            Keluar
+                            Logout
                         </button>
                     </div>
                 )}
@@ -372,7 +405,7 @@ return (
 
         <main className="chat-main">
             <header className="chat-header">
-                Halo, {user?.username || user?.email}
+                Welcome, {user?.username || user?.email}
             </header>
             {/* search moved to the sidebar */}
             <div className="messages">
@@ -429,11 +462,11 @@ return (
                     </div>
                 )}
                 <input
-                    placeholder="Tanyakan apa saja…"
+                    placeholder="Ask anything..."
                     value={input}
                     onChange={e => setInput(e.target.value)}
                 />
-                <button type="submit">Kirim</button>
+                <button type="submit">Send</button>
             </form>
         </main>
     </div>
