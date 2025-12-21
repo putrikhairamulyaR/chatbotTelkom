@@ -1,7 +1,6 @@
 // server/routes/rag.js
 import express from 'express';
 import nodeFetch from 'node-fetch';
-import fs from "fs";
 const fetch = globalThis.fetch || nodeFetch;
 
 import { pool } from '../db.js';
@@ -1777,30 +1776,6 @@ Tutup jawaban dengan:
         ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
       });
     }
-
-
-
-const SERVICE_INDEX = JSON.parse(fs.readFileSync("./services.index.json")).services;
-
-const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-
-const findService = q => {
-  const t = norm(q);
-  return SERVICE_INDEX.find(s => t.includes(norm(s.name)) || t.includes(norm(s.key))) || null;
-};
-
-const renderCard = s => {
-  const email = s.contacts.emails?.[0] || "-";
-  const phone = s.contacts.phones?.[0] || "-";
-  return `**${s.name}**\n- Deskripsi: ${s.desc}\n- Email: ${email}\n- Telepon/WA: ${phone}`;
-};
-
-if (/kontak|nomor|email|telepon|wa|whatsapp/i.test(finalPrompt)) {
-  const svc = findService(finalPrompt);
-  if (svc) {
-    return res.json({ answer: renderCard(svc) });
-  }
-}
 
     /* ==================== DEFAULT (RAG) ==================== */
     const wantsDetail = isExplicitDetailCommand(finalPrompt) || isMoreDetailFeedback(finalPrompt);
