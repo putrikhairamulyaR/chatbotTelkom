@@ -8,6 +8,7 @@ import nlp from '../utils/nlp.js';
 import { verifyToken } from '../utils/jwt.js';
 
 const router = express.Router();
+let topic = 'Belum ada';
 
 /* ==================== Config (tuning) ==================== */
 const CFG = {
@@ -15,11 +16,10 @@ const CFG = {
   ENABLE_RAG_GEN: (process.env.ENABLE_RAG_GEN || 'false').toLowerCase() === 'true',
 
   OLLAMA_URL: (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, ''),
-  OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'gemma3:4b',
+  OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'qwen2.5:3b-instruct',
 
   EMBED_URL: (process.env.EMBED_URL || process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, ''),
   EMBED_MODEL: process.env.EMBED_MODEL || 'nomic-embed-text',
-
 
   QDRANT_URL: process.env.QDRANT_URL || 'http://127.0.0.1:6333',
   QDRANT_COLLECTION: process.env.QDRANT_COLLECTION || 'documents',
@@ -52,28 +52,6 @@ const CFG = {
   // timeouts
   HTTP_TIMEOUT_MS: Number(process.env.HTTP_TIMEOUT_MS || 25000),
   GEN_TIMEOUT_MS: Number(process.env.GEN_TIMEOUT_MS || 120000),
-
-  // fast mode (reduce latency without client changes)
-  FAST_MODE: (process.env.FAST_MODE || 'true').toLowerCase() === 'true',
-  FAST_NEIGHBORS_NORMAL: Number(process.env.FAST_NEIGHBORS_NORMAL || 4),
-  FAST_NEIGHBORS_DETAIL: Number(process.env.FAST_NEIGHBORS_DETAIL || 12),
-  FAST_EXTRAS_NORMAL: Number(process.env.FAST_EXTRAS_NORMAL || 3),
-  FAST_EXTRAS_DETAIL: Number(process.env.FAST_EXTRAS_DETAIL || 5),
-  FAST_MAXCHARS_NORMAL: Number(process.env.FAST_MAXCHARS_NORMAL || 3500),
-  FAST_MAXCHARS_DETAIL: Number(process.env.FAST_MAXCHARS_DETAIL || 8000),
-  FAST_MINSENT_NORMAL: Number(process.env.FAST_MINSENT_NORMAL || 6),
-  FAST_MINSENT_DETAIL: Number(process.env.FAST_MINSENT_DETAIL || 10),
-  FAST_NUM_PREDICT_NORMAL: Number(process.env.FAST_NUM_PREDICT_NORMAL || 800),
-  FAST_NUM_PREDICT_DETAIL: Number(process.env.FAST_NUM_PREDICT_DETAIL || 1200),
-  FAST_HTTP_TIMEOUT_MS: Number(process.env.FAST_HTTP_TIMEOUT_MS || 15000),
-  FAST_GEN_TIMEOUT_MS: Number(process.env.FAST_GEN_TIMEOUT_MS || 45000),
-
-  // fast cache + synthesis
-  FAST_CACHE_ENABLED: (process.env.FAST_CACHE_ENABLED || 'true').toLowerCase() === 'true',
-  FAST_CACHE_MAX: Number(process.env.FAST_CACHE_MAX || 300),
-  FAST_CACHE_TTL_MS: Number(process.env.FAST_CACHE_TTL_MS || 15 * 60 * 1000),
-  FAST_SYNTHESIS: (process.env.FAST_SYNTHESIS || 'true').toLowerCase() === 'true',
-  FAST_SYNTH_MIN_SCORE: Number(process.env.FAST_SYNTH_MIN_SCORE || 0.6),
 
   // debug
   DEBUG_TIMINGS: (process.env.DEBUG_TIMINGS || 'false').toLowerCase() === 'true',
@@ -135,6 +113,256 @@ async function postOllamaWithFallback(pathSuffix, body, opts = {}) {
   if (lastErr) throw lastErr;
   throw new Error('Failed to contact Ollama endpoint');
 }
+
+/* ==================== Language Detection ==================== */
+
+/**
+ * Deteksi bahasa input teks (Indonesia/English)
+ * Rule-based menggunakan kata kunci dan karakteristik bahasa
+ * 
+ * @param {string} text - Teks input dari user
+ * @returns {string} - 'indonesia' atau 'english'
+ */
+function detectLanguage(text) {
+  if (!text || typeof text !== 'string') {
+    return 'indonesia'; // default ke bahasa Indonesia
+  }
+
+  const cleanedText = text.toLowerCase().trim();
+  if (cleanedText.length < 2) {
+    return 'indonesia'; // teks terlalu pendek
+  }
+
+  // Hitung indikator untuk setiap bahasa
+  let indonesiaScore = 0;
+  let englishScore = 0;
+
+  // Kata kunci bahasa Indonesia yang umum
+  const indonesiaKeywords = [
+    // Kata tanya
+    'apa', 'siapa', 'dimana', 'kapan', 'kenapa', 'mengapa', 'bagaimana', 'berapa',
+    // Kata sambung & partikel
+    'yang', 'dengan', 'untuk', 'dari', 'pada', 'ke', 'di', 'dan', 'atau', 'tapi', 
+    'tetapi', 'namun', 'jika', 'kalau', 'karena', 'sebab', 'maka', 'agar', 'supaya',
+    // Kata umum
+    'saya', 'aku', 'kamu', 'anda', 'dia', 'kami', 'kita', 'mereka', 'ini', 'itu',
+    'sini', 'situ', 'sana', 'bisa', 'dapat', 'harus', 'perlu', 'ingin', 'mau',
+    'sudah', 'telah', 'sedang', 'akan', 'belum', 'tidak', 'bukan', 'jangan',
+    // Kata spesifik domain chatbot
+    'kerja', 'praktik', 'praktek', 'kp', 'kape', 'kerja_praktik', 'kerja_praktek',
+    'ium', 'informatika', 'untuk', 'masyarakat', 'informatika_untuk_masyarakat',
+    'kurikulum', 'silabus', 'mata_kuliah', 'sks', 'kurikulum_pendidikan',
+    'magang', 'internship', 'praktik_kerja', 'berdampak', 'magang_berdampak',
+    'panduan', 'panduan_magang', 'bimbingan', 'mentor', 'perusahaan',
+    'sosialisasi', 'registrasi', 'daftar_ulang', 'krs', 'kartu_rencana_studi',
+    'pendaftaran', 'sidang', 'skripsi', 'tugas_akhir', 'seminar', 'ujian',
+    'proposal', 'hasil', 'munaqosah', 'yudisium', 'wisuda',
+    'informasi', 'info', 'detail', 'jelas', 'penjelasan', 'klarifikasi',
+    'bantuan', 'support', 'dukungan', 'bimbingan', 'konsultasi', 'tutorial',
+    'tolong', 'bantu', 'mohon', 'permohonan', 'request', 'minta',
+    'terima', 'kasih', 'thanks', 'thank', 'makasih', 'sukses',
+    'silahkan', 'sila', 'please', 'tolong', 'bantu',
+  ];
+
+  // Kata kunci bahasa Inggris yang umum
+  const englishKeywords = [
+    // Question words
+    'what', 'who', 'where', 'when', 'why', 'how', 'which', 'whom', 'whose',
+    // Common words
+    'the', 'a', 'an', 'is', 'are', 'am', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'shall', 'should',
+    'can', 'could', 'may', 'might', 'must', 'and', 'or', 'but', 'so', 'because',
+    'if', 'then', 'else', 'for', 'of', 'in', 'on', 'at', 'by', 'with', 'to',
+    'from', 'about', 'into', 'over', 'under', 'between', 'among',
+    // Pronouns
+    'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+    'my', 'your', 'his', 'her', 'its', 'our', 'their', 'mine', 'yours', 'hers',
+    'ours', 'theirs', 'this', 'that', 'these', 'those',
+    // Common verbs in chatbot - English version
+    'work', 'practice', 'internship', 'curriculum', 'information', 'help',
+    'please', 'thank', 'sorry', 'hello', 'hi', 'good', 'morning', 'afternoon',
+    'evening', 'night', 'yes', 'no', 'ok', 'okay', 'thanks',
+
+    // Translated words from Indonesian menu items
+    'assistant', 'practicum', 'list', 'services', 'available', 'faculty', 
+    'information', 'technology', 'code', 'ethics', 'rules', 'regulations',
+    'completeness', 'completion', 'graduation', 'competition', 'contest',
+    'organization', 'student', 'organization', 'data', 'change', 'modification',
+    'student', 'assessment', 'evaluation', 'graduate', 'achievement', 'award',
+    'certificate', 'letter', 'active', 'status', 'credit', 'activities',
+    'thesis', 'final', 'project', 'intern', 'internship', 'guidance', 'registration',
+    'seminar', 'defense'
+  ];
+
+  // Cek kata kunci
+  const words = cleanedText.split(/\s+/);
+  
+  words.forEach(word => {
+    const cleanWord = word.replace(/[^\w]/g, '');
+    if (cleanWord.length < 2) return;
+
+    if (indonesiaKeywords.includes(cleanWord)) {
+      indonesiaScore += 2;
+    }
+    if (englishKeywords.includes(cleanWord)) {
+      englishScore += 2;
+    }
+  });
+
+  // Cek pola karakteristik bahasa
+  // Bahasa Indonesia sering menggunakan "ng" di akhir kata
+  if (/\b\w*ng\b/i.test(cleanedText)) {
+    indonesiaScore += 1;
+  }
+
+  // Bahasa Indonesia sering menggunakan "nya" di akhir kata
+  if (/\b\w*nya\b/i.test(cleanedText)) {
+    indonesiaScore += 2;
+  }
+
+  // Bahasa Indonesia sering menggunakan "di-" prefix
+  if (/\bdi\w+/i.test(cleanedText)) {
+    indonesiaScore += 1;
+  }
+
+  // Bahasa Indonesia sering menggunakan "me-", "pe-", "ber-" prefix
+  if (/\b(me|pe|ber)\w+/i.test(cleanedText)) {
+    indonesiaScore += 1;
+  }
+
+  // Cek kata tanya spesifik
+  if (/\bapa\b|\bbagaimana\b|\bdimana\b|\bkapan\b|\bkenapa\b|\bmengapa\b|\bsiapa\b|\bberapa\b/i.test(cleanedText)) {
+    indonesiaScore += 3;
+  }
+
+  // Cek kata tanya bahasa Inggris
+  if (/\bwhat\b|\bhow\b|\bwhere\b|\bwhen\b|\bwhy\b|\bwho\b|\bwhich\b|\bwhom\b|\bwhose\b/i.test(cleanedText)) {
+    englishScore += 3;
+  }
+
+  // Cek artikel bahasa Inggris (the, a, an)
+  if (/\bthe\b|\ba\b|\ban\b/i.test(cleanedText)) {
+    englishScore += 2;
+  }
+
+  // Cek kata kerja bantu bahasa Inggris
+  if (/\bis\b|\bare\b|\bam\b|\bwas\b|\bwere\b|\bhave\b|\bhas\b|\bhad\b|\bdo\b|\bdoes\b|\bdid\b/i.test(cleanedText)) {
+    englishScore += 2;
+  }
+
+  // Aturan khusus untuk kata pendek yang ambigu
+  const ambiguousWords = ['ok', 'ya', 'no', 'hi', 'hai', 'hello', 'halo'];
+  words.forEach(word => {
+    if (ambiguousWords.includes(word)) {
+      // Netral, tidak tambah score
+    }
+  });
+
+  // Tambah score berdasarkan panjang kata rata-rata (bahasa Inggris cenderung lebih pendek)
+  const avgWordLength = words.reduce((sum, w) => sum + w.length, 0) / words.length;
+  if (avgWordLength < 4.5) {
+    englishScore += 1;
+  } else {
+    indonesiaScore += 1;
+  }
+
+  // Debug (opsional)
+  if (CFG.DEBUG_TIMINGS) {
+    console.log(`[LANG DETECT] Indo: ${indonesiaScore}, Eng: ${englishScore}, Text: "${cleanedText.substring(0, 50)}..."`);
+  }
+
+  // Keputusan akhir
+  if (englishScore > indonesiaScore) {
+    return 'english';
+  } else {
+    return 'indonesia';
+  }
+}
+
+async function translateEnglishToIndonesian(englishText) {
+  if (!englishText || typeof englishText !== 'string') {
+    return englishText;
+  }
+
+  // Clean the text
+  const cleanText = englishText.trim();
+  if (!cleanText) return '';
+
+  // Skip if text is very short (likely not needing translation)
+  if (cleanText.length < 10) {
+    return cleanText;
+  }
+
+  try {
+    const body = {
+      model: CFG.OLLAMA_MODEL, // Use the configured model
+      stream: false,
+      prompt: `TRANSLATE ENGLISH TO INDONESIAN
+
+Translate the following English text to formal, natural Indonesian.
+IMPORTANT RULES:
+1. Keep the meaning EXACT - no additions, no omissions
+2. Use formal Indonesian (bahasa Indonesia baku)
+3. Maintain bullet points, numbering, and formatting
+4. Translate all the words (names, places, acronyms), e.g Informatics for Society course translate to Matakuliah Informatika Untuk Masyarakat
+5. Output ONLY the translation, no explanations
+6. Just output the sentence no additional words
+
+English text:
+${cleanText}
+
+Indonesian translation:`,
+      temperature: 0.1, // Low temperature for accurate translation
+      num_predict: Math.min(cleanText.length * 3, 4000), // Adjust based on input length
+    };
+
+    console.log(`[TRANSLATE] Translating: "${cleanText.substring(0, 80)}..."`);
+
+    const response = await postOllamaWithFallback('generate', body, {
+      timeoutMs: 60000,
+      retry: 1,
+    });
+
+    if (!response.ok) {
+      console.warn('[TRANSLATE] Translation request failed');
+      return cleanText; // Return original on failure
+    }
+
+    const data = await response.json();
+    const translated = extractTextFromOllamaResponse(data);
+
+    // Clean the translated output
+    let result = translated.trim();
+    
+    // Remove common prefix artifacts
+    const prefixesToRemove = [
+      'Terjemahan:',
+      'Translation:',
+      'Indonesian translation:',
+      'Hasil terjemahan:',
+      'Berikut terjemahannya:',
+    ];
+
+    prefixesToRemove.forEach(prefix => {
+      if (result.toLowerCase().startsWith(prefix.toLowerCase())) {
+        result = result.slice(prefix.length).trim();
+      }
+    });
+
+    // Remove quotes if present
+    result = result.replace(/^["']|["']$/g, '').trim();
+
+    console.log(`[TRANSLATE] Original: "${cleanText.substring(0, 60)}..."`);
+    console.log(`[TRANSLATE] Translated: "${result.substring(0, 60)}..."`);
+
+    return result || cleanText; // Fallback to original if empty
+
+  } catch (error) {
+    console.error('[TRANSLATE] Error:', error?.message || error);
+    return cleanText; // Return original on error
+  }
+}
+
 
 async function polishAnswerWithGemma(answer) {
   if (!answer || answer.length < 80) return answer;
@@ -228,122 +456,7 @@ export function cleanAnswer(text) {
 
   s = s.replace(/^\n+|\n+$/g, '');
 
-  // Strip document boilerplate/metadata that sometimes leaks from PDFs
-  s = stripDocBoilerplate(s);
   return s.trim();
-}
-
-function stripDocBoilerplate(text) {
-  const months = '(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)';
-  const cities = '(bandung|jakarta|surabaya|yogyakarta|semarang|bogor|depok|bali)';
-  const lines = String(text || '').split('\n');
-
-  const kept = lines.filter((raw) => {
-    const line = (raw || '').trim();
-    if (!line) return true;
-    if (/https?:\/\//i.test(line)) return true; // keep links
-    if (/\[(?:[^\]]+)\]\((?:[^)]+)\)/.test(line)) return true; // keep markdown links
-    if (/link dokumen/i.test(line)) return true;
-
-    if (/^bab\s+\d+(?:[.\d]+)?\s*$/i.test(line)) return false;
-    if (/^(daftar isi|lembar pengesahan|kata pengantar)\s*$/i.test(line)) return false;
-    if (/^(pendahuluan|latar belakang)\s*$/i.test(line)) return false;
-    if (/^universitas\s+telkom/i.test(line)) return false;
-    if (/^fakultas\s+informatika/i.test(line)) return false;
-    if (/buku\s+panduan/i.test(line) && line.length < 120) return false;
-
-    const cityMonthYear = new RegExp(`^${cities}\\s*,\\s*${months}\\s+\\d{4}$`, 'i');
-    if (cityMonthYear.test(line)) return false;
-    const monthYear = new RegExp(`\b${months}\\s+\\d{4}\b`, 'i');
-    if (monthYear.test(line) && line.length <= 80) return false;
-
-    const noSpace = line.replace(/\s+/g, '');
-    const isAllCaps = /[A-Z]/.test(noSpace) && noSpace === noSpace.toUpperCase();
-    if (isAllCaps && line.length <= 60) return false;
-
-    return true;
-  });
-
-  let out = kept.join('\n').replace(/^\s*\n+/, '').replace(/\n{3,}/g, '\n\n');
-
-  // Inline cleanup for residual tokens embedded within sentences
-  out = out.replace(/\bBAB\s+\d+(?:\.\d+)*\b(?:\s+[A-Z \-]{3,30})?/g, '');
-  out = out.replace(/\b(PENDAHULUAN|LATAR BELAKANG)\b/gi, '');
-  out = out.replace(new RegExp(`\b${months}\\s+\\d{4}\b`, 'gi'), '');
-  // City + (optional comma) + optional month-year + optional outline numbers like "7 1.1"
-  out = out.replace(new RegExp(`\\b${cities}\\b\\s*,?\\s*(?:${months}\\s+\\d{4})?(?:\\s+\\d{1,3}(?:\\s+\\d+(?:\\.\\d+)+)?)?`, 'gi'), '');
-  out = out.replace(/\bDekan\s+Fakultas\s+Informatika\b/gi, '');
-  out = out.replace(/\bBuku\s+Panduan[^\n]{0,60}/gi, '');
-  out = out.replace(/\bversi\s+20\d{2}\b/gi, '');
-  out = out.replace(/\s{2,}/g, ' ');
-
-  return out;
-}
-
-/* ==================== Fast cache & synthesis helpers (reduce latency) ==================== */
-const fastCache = new Map();
-
-function cacheGet(key) {
-  try {
-    const e = fastCache.get(key);
-    if (!e) return null;
-    if (Date.now() - e.ts > CFG.FAST_CACHE_TTL_MS) {
-      fastCache.delete(key);
-      return null;
-    }
-    return e.value;
-  } catch {
-    return null;
-  }
-}
-
-function cacheSet(key, value) {
-  try {
-    fastCache.set(key, { ts: Date.now(), value });
-    while (fastCache.size > CFG.FAST_CACHE_MAX) {
-      // delete oldest
-      const k = fastCache.keys().next().value;
-      if (!k) break;
-      fastCache.delete(k);
-    }
-  } catch {}
-}
-
-function synthesizeAnswerFromContext(userQuery, focusedText, contextBlocks, opts = {}) {
-  try {
-    const { bulletMode = false, maxSentences = 6 } = opts || {};
-    const text = String(focusedText || '').trim();
-    if (!text) return '';
-
-    // split into sentences (keep punctuation)
-    const sents = (text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || []).map((s) => s.trim()).filter(Boolean);
-    if (!sents.length) return text.slice(0, 800);
-
-    // If user asked for procedure/steps, try to make numbered steps
-    if (bulletMode) {
-      const chosen = sents.slice(0, maxSentences).map((s, i) => `${i + 1}. ${s.replace(/\s+/g, ' ').trim()}`);
-      return chosen.join('\n');
-    }
-
-    // For normal questions: pick first N sentences, but prefer sentences containing keywords from the user query
-    const qwords = (String(userQuery || '').toLowerCase().split(/\s+/).filter((w) => w.length > 2));
-    const scored = sents.map((s) => {
-      const low = s.toLowerCase();
-      const score = qwords.reduce((acc, w) => acc + (low.includes(w) ? 1 : 0), 0);
-      return { s, score };
-    });
-    scored.sort((a, b) => b.score - a.score);
-
-    const chosen = scored.slice(0, maxSentences).map((x) => x.s);
-
-    // Keep original order for readability
-    const ordered = sents.filter((s) => chosen.includes(s)).slice(0, maxSentences);
-
-    const out = ordered.join(' ');
-    return out.length > 1600 ? out.slice(0, 1600) : out;
-  } catch {
-    return focusedText.slice(0, 800);
-  }
 }
 
 /* ==================== Conversation Memory ==================== */
@@ -396,8 +509,8 @@ function isSmallTalk(prompt) {
   if (!prompt) return false;
   const p = prompt.toLowerCase().trim();
 
-  const hasTopic = /\b(kp|ium|kurikulum|magang\s+berdampak|kerja\s+praktik|kerja\s+praktek|informatika\s+untuk\s+masyarakat)\b/i.test(p);
-  const hasQuestion = /[?]|apa\s|bagaimana|kenapa|kapan|siapa|dimana|berapa|gimana|mengapa/i.test(p);
+  const hasTopic = /\b(asisten\s+praktikum|daftar\s+layanan|informasi\s+fit|kode\s+etik|kelengkapan\s+sidang|kompetisi|magang|organisasi|perubahan\s+data|penilaian\s+wisudawan|skl|surat\s+keterangan\s+aktif|tak|tugas\s+akhir|kerja\s+praktik|kerja\s+praktek|informatika\s+untuk\s+masyarakat)\b/i.test(p);
+  const hasQuestion = /[?]|apa\s|bagaimana|kenapa|kapan|siapa|dimana|berapa|gimana|mengapa|bisa\s+tolong|tolong\s+bantu|caranya|cara\s+untuk|prosedur|proses|syarat|persyaratan|dokumen|berkas/i.test(p);
 
   if (hasTopic || hasQuestion) return false;
 
@@ -426,12 +539,20 @@ function toTitleCase(s) {
 }
 
 const STATIC_TOPIC_ALIASES = {
-  kp: ['kp', 'kerja praktik', 'kerja_praktik'],
-  ium: ['ium', 'informatika untuk masyarakat', 'informatika_untuk_masyarakat'],
-  kurikulum: ['kurikulum'],
-  magang_berdampak: ['magang berdampak', 'magang_berdampak', 'panduan magang berdampak', 'panduan_magang_berdampak'],
-  sosialisasi_registrasi: ['sosialisasi registrasi', 'sosialisasi_registrasi'],
-  pendaftaran_sidang: ['pendaftaran sidang', 'pendaftaran_sidang', 'info pendaftaran sidang', 'info_pendaftaran_sidang'],
+  asisten_praktikum: ['asisten praktikum', 'asisten_praktikum', 'asisten dan praktikum', 'Asisten Praktikum Dan Praktikum'],
+  daftar_layanan: ['daftar layanan', 'daftar_layanan', 'daftar layanan yang tersedia', 'layanan tersedia'],
+  informasi_fit: ['informasi fit', 'informasi_fit', 'fit'],
+  kode_etik: ['kode etik', 'kode_etik', 'kode etik dan aturan', 'aturan'],
+  kelengkapan_sidang: ['kelengkapan sidang', 'kelengkapan_sidang'],
+  kompetisi: ['kompetisi'],
+  magang: ['magang'],
+  organisasi: ['organisasi'],
+  perubahan_data: ['perubahan data', 'perubahan_data', 'perubahan data mahasiswa'],
+  penilaian_wisudawan: ['penilaian wisudawan', 'penilaian_wisudawan', 'penilaian wisudawan berprestasi', 'wisudawan berprestasi'],
+  skl: ['skl', 'surat keterangan lulus'],
+  surat_aktif: ['surat keterangan aktif', 'surat_aktif', 'surat aktif'],
+  tak: ['tak', 'tambahan aktivitas kurikulum'],
+  tugas_akhir: ['tugas akhir', 'tugas_akhir', 'skripsi', 'ta']
 };
 
 const STATIC_TOPIC_SLUGS = new Set(Object.keys(STATIC_TOPIC_ALIASES));
@@ -451,28 +572,22 @@ function canonicalStaticSlug(s) {
 function smallTalkReply(extraTopics = []) {
   const base = `Halo! Saya asisten chatbot yang siap membantu Anda.
 
-Silakan pilih topik yang ingin Anda tanyakan:
+Topik yang tersedia:
 
-1. Kerja Praktik (KP)
-  Ketik: 1 atau KP
-
-2. Informatika Untuk Masyarakat (IUM)
-  Ketik: 2 atau IUM
-
-3. Kurikulum
-  Ketik: 3 atau Kurikulum
-
-4. Panduan Magang Berdampak
-  Ketik: 4 atau Magang Berdampak
-
-5. Sosialisasi Registrasi
-  Ketik: 5 atau Sosialisasi Registrasi
-
-6. Info Pendaftaran Sidang
-  Ketik: 6 atau Pendaftaran Sidang
-
-7. Sosialisasi Registrasi
-  Ketik: 7 atau Sosialisasi Registrasi`;
+  - Asisten Praktikum Dan Praktikum
+  - Daftar Layanan Yang tersedia
+  - informasi FIT
+  - Kode Etik dan Aturan
+  - Kelengkapan Sidang
+  - Kompetisi
+  - Magang
+  - Organisasi
+  - Perubahan data mahasiswa
+  - Penilaian Wisudawan berprestasi
+  - SKL
+  - surat Keterangan Aktif
+  - TAK
+  - Tugas Akhir`;
 
   const dyn = (extraTopics || [])
    .map((t) => String(t || '').trim().toLowerCase())
@@ -599,7 +714,7 @@ function getPendingContinuation(recentDesc) {
   return null;
 }
 
-/* ==================== Topic selection (KP/IUM/...) ==================== */
+/* ==================== Topic selection () ==================== */
 const TOPIC_MARKER_PREFIX = '__TOPIC__:';
 function makeTopicMarker(topic) {
   return TOPIC_MARKER_PREFIX + JSON.stringify({
@@ -628,23 +743,153 @@ function getStoredTopic(recentDesc) {
   return null;
 }
 
+function normalize(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '') // hapus simbol
+    .replace(/\s+/g, ' ')    // spasi berlebih
+    .trim();
+}
+
+function similarity(a, b) {
+  const dp = Array.from({ length: a.length + 1 }, () =>
+    Array(b.length + 1).fill(0)
+  );
+
+  for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+  }
+
+  return 1 - dp[a.length][b.length] / Math.max(a.length, b.length);
+}
+
+function fuzzyIncludes(text, keyword, threshold = 0.75) {
+  const words = text.split(' ');
+  return words.some(w => similarity(w, keyword) >= threshold);
+}
+
 function parseTopicChoice(text) {
-  const t = String(text || '').toLowerCase().trim();
+  const t = normalize(text);
+  console.log(t);
 
-  if (t === '1') return 'kp';
-  if (t === '2') return 'ium';
-  if (t === '3') return 'kurikulum';
-  if (t === '4') return 'magang_berdampak';
-  if (t === '5') return 'sosialisasi_registrasi';
-  if (t === '6') return 'pendaftaran_sidang';
-  if (t === '7') return 'sosialisasi_registrasi';
+  // if (t === '1') return 'asisten_praktikum';
+  // if (t === '2') return 'daftar_layanan';
+  // if (t === '3') return 'informasi_fit';
+  // if (t === '4') return 'kode_etik';
+  // if (t === '5') return 'kelengkapan_sidang';
+  // if (t === '6') return 'kompetisi';
+  // if (t === '7') return 'magang';
+  // if (t === '8') return 'organisasi';
+  // if (t === '9') return 'perubahan_data';
+  // if (t === '10') return 'penilaian_wisudawan';
+  // if (t === '11') return 'skl';
+  // if (t === '12') return 'surat_aktif';
+  // if (t === '13') return 'tak';
+  // if (t === '14') return 'tugas_akhir';
 
-  if (t === 'kp' || t.includes('kerja praktik') || t.includes('kerja praktek')) return 'kp';
-  if (t === 'ium' || t.includes('informatika untuk masyarakat')) return 'ium';
-  if (t === 'kurikulum' || t.includes('kurikulum')) return 'kurikulum';
-  if (t.includes('magang berdampak') || t.includes('panduan magang')) return 'magang_berdampak';
-  if (t.includes('sosialisasi registrasi')) return 'sosialisasi_registrasi';
-  if (t.includes('pendaftaran sidang') || t.includes('info pendaftaran sidang')) return 'pendaftaran_sidang';
+  // Mapping berdasarkan teks
+  if (
+    t.includes('asisten praktikum') ||
+    t.includes('asisten') ||
+    fuzzyIncludes(t, 'asisten') ||
+    fuzzyIncludes(t, 'praktikum')
+  ) return 'Asisten Praktikum Dan Praktikum';
+
+  if (
+    t.includes('daftar layanan') ||
+    t.includes('layanan tersedia') ||
+    fuzzyIncludes(t, 'layanan') ||
+    fuzzyIncludes(t, 'daftar')
+  ) return 'Daftar Layanan Yang tersedia';
+
+  if (
+    t.includes('informasi fit') ||
+    t.includes('fit') ||
+    fuzzyIncludes(t, 'informasi') ||
+    fuzzyIncludes(t, 'fit')
+  ) return 'informasi FIT';
+
+  if (
+    t.includes('kode etik') ||
+    t.includes('aturan') ||
+    fuzzyIncludes(t, 'etik') ||
+    fuzzyIncludes(t, 'aturan')
+  ) return 'Kode Etik dan Aturan';
+
+  if (
+    t.includes('kelengkapan sidang') ||
+    fuzzyIncludes(t, 'kelengkapan') ||
+    fuzzyIncludes(t, 'sidang')
+  ) return 'kelengkapan sidang';
+
+  if (
+    t.includes('kompetisi') ||
+    fuzzyIncludes(t, 'kompetisi') ||
+    fuzzyIncludes(t, 'lomba')
+  ) return 'Kompetisi';
+
+  if (
+    t.includes('magang') ||
+    fuzzyIncludes(t, 'magang') ||
+    fuzzyIncludes(t, 'internship')
+  ) return 'Magang';
+
+  if (
+    t.includes('organisasi') ||
+    fuzzyIncludes(t, 'organisasi') ||
+    fuzzyIncludes(t, 'himpunan')
+  ) return 'Organisasi';
+
+  if (
+    t.includes('perubahan data') ||
+    t.includes('data mahasiswa') ||
+    fuzzyIncludes(t, 'perubahan') ||
+    fuzzyIncludes(t, 'data')
+  ) return 'Perubahan data mahasiswa';
+
+  if (
+    t.includes('penilaian wisudawan') ||
+    t.includes('wisudawan berprestasi') ||
+    fuzzyIncludes(t, 'wisudawan') ||
+    fuzzyIncludes(t, 'prestasi')
+  ) return 'Penilaian Wisudawan berprestasi';
+
+  if (
+    t.includes('skl') ||
+    t.includes('surat keterangan lulus') ||
+    fuzzyIncludes(t, 'skl') ||
+    fuzzyIncludes(t, 'lulus')
+  ) return 'SKL';
+
+  if (
+    t.includes('surat keterangan aktif') ||
+    t.includes('surat aktif') ||
+    fuzzyIncludes(t, 'surat') ||
+    fuzzyIncludes(t, 'aktif')
+  ) return 'surat Keterangan Aktif';
+
+  if (
+    t.includes('tak') ||
+    t.includes('tambahan aktivitas kurikulum') ||
+    fuzzyIncludes(t, 'tak')
+  ) return 'TAK';
+
+  if (
+    t.includes('tugas akhir') ||
+    t.includes('skripsi') ||
+    t.includes('ta') ||
+    fuzzyIncludes(t, 'tugas akhir') ||
+    fuzzyIncludes(t, 'skripsi')
+  ) return 'Tugas Akhir';
 
   return null;
 }
@@ -653,22 +898,48 @@ function inferTopicFromPrompt(prompt) {
   if (!prompt) return null;
   const t = String(prompt || '').toLowerCase().trim();
 
-  if (/\bium\b/i.test(t)) return 'ium';
-  if (t.includes('informatika untuk masyarakat')) return 'ium';
+  // Mapping untuk semua item menu
+  if (/\basisten\s+praktikum\b/i.test(t)) return 'asisten_praktikum';
+  if (t.includes('asisten praktikum')) return 'asisten_praktikum';
 
-  if (/\bkp\b/i.test(t)) return 'kp';
-  if (t.includes('kerja praktik')) return 'kp';
-  if (t.includes('kerja praktek')) return 'kp';
+  if (/\bdaftar\s+layanan\b/i.test(t)) return 'daftar_layanan';
+  if (t.includes('daftar layanan')) return 'daftar_layanan';
 
-  if (/\bkurikulum\b/i.test(t)) return 'kurikulum';
+  if (/\binformasi\s+fit\b/i.test(t)) return 'informasi_fit';
+  if (t.includes('informasi fit')) return 'informasi_fit';
 
-  if (/\bmagang\s+berdampak\b/i.test(t)) return 'magang_berdampak';
-  if (t.includes('panduan magang')) return 'magang_berdampak';
+  if (/\bkode\s+etik\b/i.test(t)) return 'kode_etik';
+  if (t.includes('kode etik')) return 'kode_etik';
 
-  if (/\bsosialisasi\s+registrasi\b/i.test(t)) return 'sosialisasi_registrasi';
+  if (/\bkelengkapan\s+sidang\b/i.test(t)) return 'kelengkapan_sidang';
+  if (t.includes('kelengkapan sidang')) return 'kelengkapan_sidang';
 
-  if (/\bpendaftaran\s+sidang\b/i.test(t)) return 'pendaftaran_sidang';
-  if (t.includes('info pendaftaran sidang')) return 'pendaftaran_sidang';
+  if (/\bkompetisi\b/i.test(t)) return 'kompetisi';
+  if (t.includes('kompetisi')) return 'kompetisi';
+
+  if (/\bmagang\b/i.test(t)) return 'magang';
+  if (t.includes('magang')) return 'magang';
+
+  if (/\borganisasi\b/i.test(t)) return 'organisasi';
+  if (t.includes('organisasi')) return 'organisasi';
+
+  if (/\bperubahan\s+data\b/i.test(t)) return 'perubahan_data';
+  if (t.includes('perubahan data')) return 'perubahan_data';
+
+  if (/\bpenilaian\s+wisudawan\b/i.test(t)) return 'penilaian_wisudawan';
+  if (t.includes('penilaian wisudawan')) return 'penilaian_wisudawan';
+
+  if (/\bskl\b/i.test(t)) return 'skl';
+  if (t.includes('skl')) return 'skl';
+
+  if (/\bsurat\s+keterangan\s+aktif\b/i.test(t)) return 'surat_aktif';
+  if (t.includes('surat keterangan aktif')) return 'surat_aktif';
+
+  if (/\btak\b/i.test(t)) return 'tak';
+  if (t.includes('tak')) return 'tak';
+
+  if (/\btugas\s+akhir\b/i.test(t)) return 'tugas_akhir';
+  if (t.includes('tugas akhir')) return 'tugas_akhir';
 
   return null;
 }
@@ -757,36 +1028,6 @@ function looksLikeDefinitionText(text) {
   return t.includes(' adalah ') || t.includes(' merupakan ') || t.includes(' didefinisikan ');
 }
 
-// Crop context to relevant section based on user query keywords
-function cropContextByQuery(query, text) {
-  try {
-    const q = String(query || '').toLowerCase();
-    let s = String(text || '');
-    if (!q || !s) return s;
-
-    const rules = [
-      { kw: /(ruang\s+lingkup|lingkup\s+kerja|scope|cakupan)/i, re: /ruang\s+lingkup[^:\n]*:?/i },
-      { kw: /(tujuan|manfaat)/i, re: /tujuan[^:\n]*:?/i },
-      { kw: /(syarat|prosedur|alur|tata\s*cara)/i, re: /(syarat|prosedur|alur|tata\s*cara)[^:\n]*:?/i },
-      { kw: /(definisi|pengertian|apa itu)/i, re: /(definisi|pengertian)[^:\n]*:?/i },
-    ];
-
-    for (const r of rules) {
-      if (r.kw.test(q)) {
-        const m = r.re.exec(s);
-        if (m && typeof m.index === 'number') {
-          s = s.slice(m.index);
-          break;
-        }
-      }
-    }
-
-    return s;
-  } catch {
-    return text;
-  }
-}
-
 /* ==================== Qdrant Helpers ==================== */
 async function createQdrantClient() {
   const qdrantModule = await import('@qdrant/js-client-rest');
@@ -808,8 +1049,25 @@ function countSentences(text) {
 
 function buildDocFilter({ topic, filename }) {
   const must = [];
-  if (topic) must.push({ key: 'topic', match: { value: String(topic).toLowerCase() } });
-  if (filename) must.push({ key: 'filename', match: { value: String(filename) } });
+  
+  if (topic) {
+    must.push({
+      key: 'topic',
+      match: { value: topic } 
+    });
+  }
+  
+  if (filename) {
+    must.push({ 
+      key: 'filename', 
+      match: { value: filename } 
+    });
+  }
+  
+  console.log('Filter topic:', topic);
+  console.log('Filter filename:', filename);
+  console.log('Complete filter:', must);
+  
   return must.length ? { must } : null;
 }
 
@@ -872,11 +1130,11 @@ function buildAnchorPlusNeighborsText(anchorPayload, neighborPoints, opts = {}) 
   const minSentences = Number(opts.minSentences || 8);
 
   const parts = [];
-  const anchorText = stripDocBoilerplate(normalizeText(anchorPayload?.text || anchorPayload?.snippet || ''));
+  const anchorText = normalizeText(anchorPayload?.text || anchorPayload?.snippet || '');
   if (anchorText) parts.push(anchorText);
 
   for (const np of neighborPoints || []) {
-    const t = stripDocBoilerplate(normalizeText(np?.payload?.text || ''));
+    const t = normalizeText(np?.payload?.text || '');
     if (t) parts.push(t);
 
     const joined = parts.join(' ');
@@ -886,10 +1144,6 @@ function buildAnchorPlusNeighborsText(anchorPayload, neighborPoints, opts = {}) 
 
   let joined = parts.join(' ').trim();
   if (joined.length > maxChars) joined = joined.slice(0, maxChars);
-  // If query provided, crop to the relevant section
-  if (opts && opts.query) {
-    joined = cropContextByQuery(opts.query, joined);
-  }
   return joined;
 }
 
@@ -956,7 +1210,7 @@ function ensureClosingQuestion(answer, topic) {
 }
 
 /* ==================== Embedding helper ==================== */
-async function embedText(input, opts = {}) {
+async function embedText(input) {
   const candidates = [`${CFG.EMBED_URL}/api/embed`, `${CFG.EMBED_URL}/embed`];
 
   let lastErr = null;
@@ -965,7 +1219,7 @@ async function embedText(input, opts = {}) {
       const r = await postWithTimeout(
         url,
         { model: CFG.EMBED_MODEL, input, keep_alive: '10m' },
-        { timeoutMs: opts.timeoutMs || CFG.HTTP_TIMEOUT_MS, retry: 1 }
+        { timeoutMs: CFG.HTTP_TIMEOUT_MS, retry: 1 }
       );
       if (r.ok) return await r.json();
       lastErr = new Error(await r.text().catch(() => 'embed failed'));
@@ -991,13 +1245,21 @@ router.post('/', async (req, res) => {
       prompt,
       top_k: rawTopK = CFG.TOP_K_DEFAULT,
       id_user: rawIdUser,
-      topic: rawTopic,
+      currentTopic: rawTopic,
       filename: rawFilename,
-      fast: rawFast,
     } = req.body || {};
 
+    
+
+    const language = detectLanguage(prompt);
+    
+    let finalPrompt = prompt;
+    console.log(finalPrompt);
+    if (language == 'english') {
+      finalPrompt = await translateEnglishToIndonesian(prompt);
+    }
+
     const top_k = Number(rawTopK || CFG.TOP_K_DEFAULT);
-    const fast = typeof rawFast === 'boolean' ? rawFast : CFG.FAST_MODE;
     let id_user = rawIdUser ? Number(rawIdUser) : null;
 
     // Prefer id_user from JWT if Authorization header present
@@ -1015,18 +1277,119 @@ router.post('/', async (req, res) => {
       return res.status(401).json({ error: 'Login required. Provide Bearer token or id_user.' });
     }
 
-    let topic = rawTopic ? String(rawTopic).trim().toLowerCase() : null;
-    const filenameFilter = rawFilename ? String(rawFilename).trim() : null;
+    let currentTopic = rawTopic ? String(rawTopic).trim().toLowerCase() : null;
 
-    if (!prompt) return res.status(400).json({ error: 'prompt required' });
+    function isTemplateQuery(prompt, topic) {
+      if (topic == 'Belum ada') return false;
+      const text = prompt.toLowerCase();
+      const keywords = ['template', 'tamplate', 'format', 'contoh dokumen', 'formulir', 'blanko'];
+      return keywords.some(keyword => text.includes(keyword));
+    }
+
+    currentTopic = parseTopicChoice(finalPrompt); 
+    
+    
+    if (topic !== 'Belum ada' && isTemplateQuery(finalPrompt, topic)) {
+        //ubah disini
+    }
+    
+
+    console.log(isTemplateQuery(prompt, topic), currentTopic);
+    if (topic == 'Belum ada' || (topic != currentTopic && currentTopic != null)) {
+      topic = currentTopic
+    }
+
+    async function peekMetadata(collectionName) {
+      const qdrant = await createQdrantClient();
+      
+      const result = await qdrant.scroll(collectionName, {
+        limit: 1, // Kita cuma butuh satu contoh
+        with_payload: true,
+        with_vector: false
+      });
+
+      if (result.points.length > 0) {
+        console.log("Struktur Metadata Anda:", Object.keys(result.points[0].payload));
+        console.log("Contoh Isi:", result.points[0].payload);
+      } else {
+        console.log("Koleksi kosong.");
+      }
+    }
+
+    peekMetadata(CFG.QDRANT_COLLECTION);
+
+    if (topic !== 'Belum ada' && isTemplateQuery(finalPrompt, topic)) {
+      // Ambil daftar file .docx untuk topik ini dari Qdrant
+      const qdrant = await createQdrantClient();
+      const COLLECTION = CFG.QDRANT_COLLECTION;
+
+      // Filter untuk topik saat ini
+      const filter = buildDocFilter({ topic, filename: null });
+
+      // Scroll untuk mendapatkan semua dokumen dengan topik ini
+      const sc = await qdrant.scroll(COLLECTION, {
+        limit: 1000, // Angka yang cukup besar, sesuaikan dengan kebutuhan
+        with_payload: true,
+        with_vector: false,
+        filter: filter || undefined,
+      });
+
+      const points = sc?.points || sc?.result?.points || sc?.result || [];
+
+      // Kumpulkan nama file unik yang berakhiran .docx
+      const docxFiles = new Set();
+      for (const p of points) {
+        const filename = p?.payload?.filename;
+        if (typeof filename === 'string' && filename.toLowerCase().endsWith('.docx')) {
+          docxFiles.add(filename);
+        }
+      }
+
+      // Jika ada file .docx, buat daftar link
+      if (docxFiles.size > 0) {
+        const fileLinks = Array.from(docxFiles).map(filename => {
+          const url = CFG.PUBLIC_BASE_URL ? `${CFG.PUBLIC_BASE_URL}/data/${filename}` : `/data/${filename}`;
+          return `- [${filename}](${url})`;
+        }).join('\n');
+
+        const answer = `Berikut adalah template dokumen untuk topik ${topic}:\n\n${fileLinks}\n\nSilakan unduh melalui link di atas.`;
+        
+        await persistMessage(id_user, 'bot', answer, 'answer', null, null);
+        return res.json({
+          answer,
+          sources: [],
+          raw_hits: [],
+          metadata: analysis,
+          context_messages: recentDesc,
+          ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
+        });
+      } else {
+        const answer = `Maaf, tidak ditemukan template dokumen (file .docx) untuk topik ${topic}.`;
+        await persistMessage(id_user, 'bot', answer, 'answer', null, null);
+        return res.json({
+          answer,
+          sources: [],
+          raw_hits: [],
+          metadata: analysis,
+          context_messages: recentDesc,
+          ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
+        });
+      }
+    }
+    
+    console.log(`[RAG DEBUG] User: ${id_user}, Topic: ${topic}`);
+    const filenameFilter = rawFilename ? String(rawFilename).trim() : null;
+    console.log(`[RAG DEBUG] User: ${id_user}, Topic: ${filenameFilter}`);
+
+    if (!finalPrompt) return res.status(400).json({ error: 'prompt required' });
 
     // sentiment/intent logging (optional)
     let analysis = null;
     try {
-      analysis = await nlp.analyzeMessage(prompt || '');
-      await persistMessage(id_user, 'user', prompt || '', analysis.intent, analysis.sentiment.score, analysis.sentiment.label);
+      analysis = await nlp.analyzeMessage(finalPrompt || '');
+      await persistMessage(id_user, 'user', finalPrompt || '', analysis.intent, analysis.sentiment.score, analysis.sentiment.label);
     } catch {
-      await persistMessage(id_user, 'user', prompt || '', null, null, null);
+      await persistMessage(id_user, 'user', finalPrompt || '', null, null, null);
     }
 
     const recentDesc = await getRecentConversation(id_user, 30);
@@ -1036,12 +1399,13 @@ router.post('/', async (req, res) => {
     let mode = getStoredMode(recentDesc) || 'idle';
 
     /* ========= MENU / GANTI TOPIK ========= */
-    if (isTopicMenuRequest(prompt)) {
+    if (isTopicMenuRequest(finalPrompt)) {
       await persistMessage(id_user, 'meta', makeTopicMarker(null), 'meta', null, null);
       await persistMessage(id_user, 'meta', makeModeMarker('idle'), 'meta', null, null);
 
       const dynTopics = await listDynamicTopics(12);
       const reply = smallTalkReply(dynTopics);
+      
       await persistMessage(id_user, 'bot', reply, 'answer', null, null);
       return res.json({
         answer: reply,
@@ -1055,16 +1419,16 @@ router.post('/', async (req, res) => {
 
     /* ========= TOPIC DETECTION / SELECTION ========= */
 
-    // kalau user menyebut topik di prompt (contoh: "kurikulum ...?")
+    // kalau user menyebut topik di finalPrompt (contoh: "kurikulum ...?")
     if (!topic) {
-      const inferred = inferTopicFromPrompt(prompt);
+      const inferred = inferTopicFromPrompt(finalPrompt);
       if (inferred) {
         topic = inferred;
         await persistMessage(id_user, 'meta', makeTopicMarker(inferred), 'meta', null, null);
 
-        // kalau prompt itu beneran pertanyaan, langsung masuk "in_topic"
+        // kalau finalPrompt itu beneran pertanyaan, langsung masuk "in_topic"
         // kalau cuma nyebut topik aja, masuk "awaiting_question"
-        if (looksLikeQuestion(prompt)) {
+        if (looksLikeQuestion(finalPrompt)) {
           await persistMessage(id_user, 'meta', makeModeMarker('in_topic'), 'meta', null, null);
           mode = 'in_topic';
         } else {
@@ -1075,6 +1439,9 @@ router.post('/', async (req, res) => {
           return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
         }
       }
+    } else {
+      const msg = `Oke :D, topik aktif: ${topic.toUpperCase()}.\n\nSilakan ketik pertanyaan kamu terkait topik ini.`;
+      await persistMessage(id_user, 'bot', msg, 'answer', null, null);
     }
 
     // kalau belum ada, ambil dari memory
@@ -1082,7 +1449,7 @@ router.post('/', async (req, res) => {
 
     // pilihan eksplisit (1/2/3/4/...)
     if (!topic) {
-      const chosen = parseTopicChoice(prompt);
+      const chosen = parseTopicChoice(finalPrompt);
       if (chosen) {
         topic = chosen;
         await persistMessage(id_user, 'meta', makeTopicMarker(chosen), 'meta', null, null);
@@ -1091,23 +1458,50 @@ router.post('/', async (req, res) => {
 
         let msg = '';
         switch (chosen) {
-          case 'ium':
-            msg = 'Baik, topik aktif: IUM.\n\nSilakan tulis pertanyaan terkait IUM.';
+          case 'asisten praktikum dan praktikum':
+            msg = 'Baik, topik aktif: ASISTEN PRAKTIKUM.\n\nSilakan tulis pertanyaan terkait Asisten Praktikum.';
             break;
-          case 'kurikulum':
-            msg = 'Baik, topik aktif: KURIKULUM.\n\nSilakan tulis pertanyaan terkait Kurikulum.';
+          case 'daftar_layanan':
+            msg = 'Baik, topik aktif: DAFTAR LAYANAN YANG TERSEDIA.\n\nSilakan tulis pertanyaan terkait Daftar Layanan.';
             break;
-          case 'magang_berdampak':
-            msg = 'Baik, topik aktif: MAGANG BERDAMPAK.\n\nSilakan tulis pertanyaan terkait Magang Berdampak.';
+          case 'informasi_fit':
+            msg = 'Baik, topik aktif: INFORMASI FIT.\n\nSilakan tulis pertanyaan terkait Informasi FIT.';
             break;
-          case 'sosialisasi_registrasi':
-            msg = 'Baik, topik aktif: SOSIALISASI REGISTRASI.\n\nSilakan tulis pertanyaan terkait Sosialisasi Registrasi.';
+          case 'kode_etik':
+            msg = 'Baik, topik aktif: KODE ETIK DAN ATURAN.\n\nSilakan tulis pertanyaan terkait Kode Etik dan Aturan.';
             break;
-          case 'pendaftaran_sidang':
-            msg = 'Baik, topik aktif: PENDAFTARAN SIDANG.\n\nSilakan tulis pertanyaan terkait Pendaftaran Sidang.';
+          case 'kelengkapan_sidang':
+            msg = 'Baik, topik aktif: KELENGKAPAN SIDANG.\n\nSilakan tulis pertanyaan terkait Kelengkapan Sidang.';
+            break;
+          case 'kompetisi':
+            msg = 'Baik, topik aktif: KOMPETISI.\n\nSilakan tulis pertanyaan terkait Kompetisi.';
+            break;
+          case 'magang':
+            msg = 'Baik, topik aktif: MAGANG.\n\nSilakan tulis pertanyaan terkait Magang.';
+            break;
+          case 'organisasi':
+            msg = 'Baik, topik aktif: ORGANISASI.\n\nSilakan tulis pertanyaan terkait Organisasi.';
+            break;
+          case 'perubahan_data':
+            msg = 'Baik, topik aktif: PERUBAHAN DATA MAHASISWA.\n\nSilakan tulis pertanyaan terkait Perubahan Data Mahasiswa.';
+            break;
+          case 'penilaian_wisudawan':
+            msg = 'Baik, topik aktif: PENILAIAN WISUDAWAN BERPRESTASI.\n\nSilakan tulis pertanyaan terkait Penilaian Wisudawan Berprestasi.';
+            break;
+          case 'skl':
+            msg = 'Baik, topik aktif: SKL.\n\nSilakan tulis pertanyaan terkait SKL (Surat Keterangan Lulus).';
+            break;
+          case 'surat_aktif':
+            msg = 'Baik, topik aktif: SURAT KETERANGAN AKTIF.\n\nSilakan tulis pertanyaan terkait Surat Keterangan Aktif.';
+            break;
+          case 'tak':
+            msg = 'Baik, topik aktif: TAK.\n\nSilakan tulis pertanyaan terkait TAK (Tambahan Aktivitas Kurikulum).';
+            break;
+          case 'tugas_akhir':
+            msg = 'Baik, topik aktif: TUGAS AKHIR.\n\nSilakan tulis pertanyaan terkait Tugas Akhir.';
             break;
           default:
-            msg = 'Baik, topik aktif: KP.\n\nSilakan tulis pertanyaan terkait Kerja Praktik (KP).';
+            msg = 'Topik tidak dikenali. Silakan pilih topik yang tersedia dari menu.';
         }
 
         await persistMessage(id_user, 'bot', msg, 'answer', null, null);
@@ -1122,7 +1516,7 @@ router.post('/', async (req, res) => {
       }
 
       // coba cocokan dengan topik dinamis dari dokumen
-      const dynChosen = await resolveDynamicTopicFromPrompt(prompt);
+      const dynChosen = await resolveDynamicTopicFromPrompt(finalPrompt);
       if (dynChosen) {
         topic = dynChosen;
         await persistMessage(id_user, 'meta', makeTopicMarker(dynChosen), 'meta', null, null);
@@ -1143,19 +1537,20 @@ router.post('/', async (req, res) => {
     }
 
     // kalau greeting tapi sudah ada topik: jangan munculin menu, stay.
-    if (topic && isSmallTalk(prompt)) {
+    if (topic && isSmallTalk(finalPrompt)) {
       const msg = `Halo! Topik aktif sekarang: ${topic.toUpperCase()}.\n\nSilakan ketik pertanyaan kamu tentang topik ini.\nKalau mau ganti, ketik: "menu" atau "ganti topik".`;
       await persistMessage(id_user, 'bot', msg, 'answer', null, null);
       return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
     }
 
     // kalau belum ada topic sama sekali: baru tampilkan menu
-    if (!topic) {
+    const lockedTopic = topic || getStoredTopic(recentDesc);
+    if (!lockedTopic) {
       const dynTopics = await listDynamicTopics(12);
       const reply = smallTalkReply(dynTopics);
       await persistMessage(id_user, 'bot', reply, 'answer', null, null);
       return res.json({
-        answer: reply,
+        answer: reply, lockedTopic,
         sources: [],
         raw_hits: [],
         metadata: analysis,
@@ -1164,21 +1559,39 @@ router.post('/', async (req, res) => {
       });
     }
 
+    function shouldStayInTopic(topic, finalPrompt) {
+      if (!topic) return false;
+      if (isTopicMenuRequest(finalPrompt)) return false;
+
+      // eksplisit pindah topik
+      const explicitTopic = inferTopicFromPrompt(finalPrompt) || parseTopicChoice(finalPrompt);
+      if (explicitTopic && explicitTopic !== topic) return false;
+
+      return true;
+    }
+
     // kalau user sudah pilih topik tapi belum nanya beneran: tahan, jangan jalanin RAG.
-    if (mode === 'awaiting_question' && !looksLikeQuestion(prompt)) {
-      const p = (prompt || '').trim().toLowerCase();
-      const looksEmpty = p.length < 3 || ['ok', 'oke', 'iya', 'ya', 'siap', 'baik'].includes(p);
+    if (!shouldStayInTopic(topic, finalPrompt)){
+      if (mode === 'awaiting_question'){
+        if (topic) {
+          await persistMessage(id_user, 'meta', makeModeMarker('in_topic'), 'meta', null, null);
+          mode = 'in_topic';
+        } else if (!looksLikeQuestion(finalPrompt)) {
+          const p = (finalPrompt || '').trim().toLowerCase();
+          const looksEmpty = p.length < 3 || ['ok', 'oke', 'iya', 'ya', 'siap', 'baik'].includes(p);
 
-      if (looksEmpty) {
-        const msg = `Oke, topik aktif: ${topic.toUpperCase()}.\n\nSilakan ketik pertanyaan kamu terkait topik ini.\nKalau mau ganti topik, ketik: "menu".`;
-        await persistMessage(id_user, 'bot', msg, 'answer', null, null);
-        return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
+          if (looksEmpty) {
+            const msg = `Oke, topik aktif: ${topic.toUpperCase()}.\n\nSilakan ketik pertanyaan kamu terkait topik ini.\nKalau mau ganti topik, ketik: "menu".`;
+            await persistMessage(id_user, 'bot', msg, 'answer', null, null);
+            return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
+          }
+
+          // kalau user ngetik kalimat tapi bukan pertanyaan, tetap minta pertanyaan
+          const msg = `Topik aktif: ${topic.toUpperCase()}.\n\nTolong tuliskan pertanyaan kamu (contoh: "Apa syarat ...?" / "Bagaimana prosedur ...?").\nKalau mau ganti topik, ketik: "menu".`;
+          await persistMessage(id_user, 'bot', msg, 'answer', null, null);
+          return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
+        }
       }
-
-      // kalau user ngetik kalimat tapi bukan pertanyaan, tetap minta pertanyaan
-      const msg = `Topik aktif: ${topic.toUpperCase()}.\n\nTolong tuliskan pertanyaan kamu (contoh: "Apa syarat ...?" / "Bagaimana prosedur ...?").\nKalau mau ganti topik, ketik: "menu".`;
-      await persistMessage(id_user, 'bot', msg, 'answer', null, null);
-      return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
     }
 
     // kalau sampai sini berarti: ada topik dan user mulai nanya → set mode in_topic
@@ -1202,7 +1615,7 @@ router.post('/', async (req, res) => {
     }
 
     /* ==================== SUMMARY MODE ==================== */
-    if (isSummaryRequest(prompt)) {
+    if (isSummaryRequest(finalPrompt)) {
       const lastAnswer = getLastBotAnswer(recentDesc);
       if (!lastAnswer) {
         const msg = 'Saya belum menemukan jawaban sebelumnya untuk diringkas.';
@@ -1248,7 +1661,7 @@ ${lastAnswer}`,
 
     /* ==================== CONTINUE MODE ==================== */
     if (pending && pending.status === 'pending') {
-      if (isNo(prompt)) {
+      if (isNo(finalPrompt)) {
         const msg = 'Baik, saya berhenti di sini. Jika ada hal lain, silakan tanya lagi.\n\nKalau mau ganti topik, ketik: "menu".';
         await persistMessage(id_user, 'meta', makeContMarker({ ...pending, status: 'done', done_at: Date.now() }), 'meta', null, null);
         await persistMessage(id_user, 'bot', msg, 'answer', null, null);
@@ -1256,10 +1669,10 @@ ${lastAnswer}`,
       }
 
       const wantsMore =
-        isYes(prompt) ||
-        isMoreDetailFeedback(prompt) ||
-        isExplicitDetailCommand(prompt) ||
-        (prompt || '').toLowerCase().includes('lanjut');
+        isYes(finalPrompt) ||
+        isMoreDetailFeedback(finalPrompt) ||
+        isExplicitDetailCommand(finalPrompt) ||
+        (finalPrompt || '').toLowerCase().includes('lanjut');
 
       if (!wantsMore) {
         const msg = 'Balas "lanjut" untuk lanjut, atau "stop" untuk berhenti.\nKalau mau ganti topik, ketik: "menu".';
@@ -1270,6 +1683,7 @@ ${lastAnswer}`,
       tick('qdrant_client');
       const qdrant = await createQdrantClient();
       const COLLECTION = CFG.QDRANT_COLLECTION;
+      
 
       const markerFilter = buildDocFilter({ topic: pending.topic || topic, filename: pending.filename });
       tick('continue_fetch');
@@ -1328,12 +1742,9 @@ Tutup jawaban dengan:
         answer = rawText.slice(0, 5200).trim();
       }
 
-      if (!fast) {
-        // Skip polishing in fast mode to save latency
-        answer = await polishAnswerWithGemma(answer);
-      }
+      answer = await polishAnswerWithGemma(answer);
       answer = ensureClosingQuestion(answer, topic);
-      // remove debug suffix to avoid extra tokens
+      answer = `${answer}\n\nINI UPDATED (lanjutan)`;
 
 
       const last = points[points.length - 1];
@@ -1357,7 +1768,7 @@ Tutup jawaban dengan:
         answer: answerWithLink,
         sources: usedSources.map((s) => ({
           ...s,
-          url: CFG.PUBLIC_BASE_URL ? `${CFG.PUBLIC_BASE_URL}/files/${s.filename}` : `/files/${s.filename}`,
+          url: CFG.PUBLIC_BASE_URL ? `${CFG.PUBLIC_BASE_URL}/data/${s.filename}` : `/data/${s.filename}`,
         })),
         raw_hits: [],
         metadata: analysis,
@@ -1367,48 +1778,33 @@ Tutup jawaban dengan:
     }
 
     /* ==================== DEFAULT (RAG) ==================== */
-    const wantsDetail = isExplicitDetailCommand(prompt) || isMoreDetailFeedback(prompt);
+    const wantsDetail = isExplicitDetailCommand(finalPrompt) || isMoreDetailFeedback(finalPrompt);
 
-    if (isExplicitDetailCommand(prompt) && !pickLastUserQuestion(recentDesc)) {
+    if (isExplicitDetailCommand(finalPrompt) && !pickLastUserQuestion(recentDesc)) {
       const msg = 'Boleh. Kirim pertanyaannya dulu, nanti saya jawab versi detail.';
       await persistMessage(id_user, 'bot', msg, 'answer', null, null);
       return res.json({ answer: msg, sources: [], raw_hits: [], metadata: analysis, context_messages: recentDesc });
     }
 
-    let userQuery = prompt;
-    if (isExplicitDetailCommand(prompt)) {
+
+    let userQuery = finalPrompt;
+
+    if (isExplicitDetailCommand(finalPrompt)) {
       const lastQ = pickLastUserQuestion(recentDesc);
       if (lastQ) userQuery = `${lastQ}\nTolong jawab versi lebih lengkap dan rinci.`;
     }
 
     const effectivePrompt = expandQuery(userQuery);
 
-    // FAST CACHE: check early to avoid doing work when possible
-    const cacheKey = `rag::${topic || 'any'}::${effectivePrompt}::${fast ? 'fast' : 'normal'}`;
-    if (CFG.FAST_CACHE_ENABLED) {
-      try {
-        const cached = cacheGet(cacheKey);
-        if (cached) {
-          // record that we answered (store last query)
-          await persistMessage(id_user, 'bot', cached.answer, 'answer', null, null);
-          return res.json({
-            ...cached,
-            metadata: { ...(analysis || {}), from_cache: true },
-            context_messages: recentDesc,
-            ...(CFG.DEBUG_TIMINGS ? { timings } : {}),
-          });
-        }
-      } catch {}
-    }
-
     tick('qdrant_client');
     const qdrant = await createQdrantClient();
     const COLLECTION = CFG.QDRANT_COLLECTION;
 
+    console.log(COLLECTION);
     const docFilter = buildDocFilter({ topic, filename: filenameFilter });
 
     tick('embed');
-    const embedResp = await embedText(effectivePrompt, { timeoutMs: fast ? CFG.FAST_HTTP_TIMEOUT_MS : CFG.HTTP_TIMEOUT_MS });
+    const embedResp = await embedText(effectivePrompt);
 
     const qvec =
       (Array.isArray(embedResp?.embedding) && embedResp.embedding) ||
@@ -1477,20 +1873,13 @@ Tutup jawaban dengan:
     const anchor = relevant[0];
     const anchorPayload = anchor?.payload || {};
 
-    const neighborCount = wantsDetail
-      ? (fast ? CFG.FAST_NEIGHBORS_DETAIL : CFG.NEIGHBORS_DETAIL)
-      : (fast ? CFG.FAST_NEIGHBORS_NORMAL : CFG.NEIGHBORS_NORMAL);
+    const neighborCount = wantsDetail ? CFG.NEIGHBORS_DETAIL : CFG.NEIGHBORS_NORMAL;
     tick('neighbors');
     const neighbors = await fetchNeighborsAfterAnchor(qdrant, COLLECTION, anchorPayload, docFilter, { count: neighborCount });
 
     const focusedText = buildAnchorPlusNeighborsText(anchorPayload, neighbors, {
-      maxChars: wantsDetail
-        ? (fast ? CFG.FAST_MAXCHARS_DETAIL : CFG.MAXCHARS_DETAIL)
-        : (fast ? CFG.FAST_MAXCHARS_NORMAL : CFG.MAXCHARS_NORMAL),
-      minSentences: wantsDetail
-        ? (fast ? CFG.FAST_MINSENT_DETAIL : CFG.MINSENT_DETAIL)
-        : (fast ? CFG.FAST_MINSENT_NORMAL : CFG.MINSENT_NORMAL),
-      query: userQuery,
+      maxChars: wantsDetail ? CFG.MAXCHARS_DETAIL : CFG.MAXCHARS_NORMAL,
+      minSentences: wantsDetail ? CFG.MINSENT_DETAIL : CFG.MINSENT_NORMAL,
     });
 
     const contextBlocks = [];
@@ -1498,15 +1887,12 @@ Tutup jawaban dengan:
       contextBlocks.push(`SOURCE: ${anchorPayload.filename || 'doc'} (p${anchorPayload.page || '?'})\n${focusedText}`);
     }
 
-    const extraCount = wantsDetail
-      ? (fast ? CFG.FAST_EXTRAS_DETAIL : CFG.EXTRAS_DETAIL)
-      : (fast ? CFG.FAST_EXTRAS_NORMAL : CFG.EXTRAS_NORMAL);
+    const extraCount = wantsDetail ? CFG.EXTRAS_DETAIL : CFG.EXTRAS_NORMAL;
     const extras = relevant
       .slice(1, extraCount + 1)
       .map((h) => {
         const p = h?.payload || {};
-        let t = stripDocBoilerplate(normalizeText(p.text || p.snippet || ''));
-        t = cropContextByQuery(userQuery, t).slice(0, wantsDetail ? 1400 : 1000);
+        const t = normalizeText(p.text || p.snippet || '').slice(0, wantsDetail ? 1400 : 1000);
         if (!t || !t.trim()) return '';
         return `SOURCE: ${p.filename || 'doc'} (p${p.page || '?'})\n${t}`;
       })
@@ -1540,66 +1926,62 @@ Tutup jawaban dengan:
       }
     }
 
+    console.log(language);
     let answer = '';
-
-    // Attempt a fast synthesis (no LLM) when in fast mode and not explicitly requesting detail
-    let fastSynthUsed = false;
-    if (fast && CFG.FAST_SYNTHESIS && !wantsDetail) {
-      try {
-        const bestScore = relevant?.[0]?.reranked_score || relevant?.[0]?.score || 0;
-        if (bestScore >= CFG.FAST_SYNTH_MIN_SCORE && focusedText && countSentences(focusedText) >= CFG.FAST_MINSENT_NORMAL) {
-          const bulletMode = /syarat|prosedur|cara|langkah|alur/i.test(userQuery || '');
-          const synth = synthesizeAnswerFromContext(userQuery, focusedText, contextBlocks, { bulletMode, maxSentences: 6 });
-          if (synth && synth.trim()) {
-            answer = cleanAnswer(synth);
-            fastSynthUsed = true;
-          }
-        }
-      } catch (e) {
-        // ignore and fall back to generation
-      }
-    }
-
-    if (!fastSynthUsed && CFG.ENABLE_RAG_GEN && contextBlocks.length > 0) {
+    if (CFG.ENABLE_RAG_GEN && contextBlocks.length > 0) {
       tick('gen');
       try {
         const contextText = contextBlocks.join('\n\n---\n\n');
+        console.log(contextText);
         const body = {
           model: CFG.OLLAMA_MODEL,
           stream: false,
-          prompt: `Kamu adalah asisten AI profesional yang menjawab pertanyaan berdasarkan dokumen yang diberikan. Jawaban HARUS rapi dan hanya berdasarkan Context yang tersedia.
+          prompt: `Anda adalah asisten AI profesional yang menjawab pertanyaan berdasarkan dokumen yang diberikan.
 
-ATURAN UTAMA:
-- Jawab langsung
-- Fokus pada topik yang ditanyakan
-- Sitasi per kalimat faktual: (NamaFile.pdf pXX)
-- Jangan mengarang. Kalau tidak ada di context, bilang "di potongan dokumen yang tersedia belum terlihat".
-- Topik aktif: "${topic}" (jangan menyebut dokumen topik lain)
+## ATURAN UTAMA:
+1. **Jawaban HARUS berdasarkan Context yang tersedia** - jangan gunakan pengetahuan eksternal
+2. **Beri sitasi** untuk setiap kalimat faktual dengan format: (NamaFile.pdf halamanXX)
+3. **Jika informasi tidak ada di Context**, katakan: "Di dokumen yang tersedia, informasi ini belum terlihat"
+4. **Fokus pada topik**: ${topic} - jangan membahas dokumen topik lain
+5. **Jangan mengarang informasi** apapun
 
-FORMAT POIN-POIN:
-- Jika ada daftar/poin-poin: setiap poin harus di baris terpisah
-- Gunakan format: 1. ...\n2. ...\n3. ...
-- Jarak antar poin maksimal 1 baris kosong
+## FORMAT JAWABAN:
+- **Struktur**: Jawab langsung ke inti pertanyaan
+- **Poin-poin**: Jika ada daftar, gunakan format:
+  1. [poin pertama]
+  2. [poin kedua] 
+  3. [poin ketiga]
 
-Gaya jawaban:
-${wantsDetail
-  ? '- Lebih lengkap dan rinci, tetap ringkas per poin.\n- Kalau ada prosedur/syarat: gunakan format poin.'
-  : '- Definisi: 4–7 kalimat.\n- Penjelasan umum: 7–12 kalimat.\n- Prosedur/syarat: format poin.'}
+  atau jika tidak berurut pakai: 
 
-Pertanyaan: ${userQuery}
+  - [poin pertama]
+  - [poin kedua] 
+  - [poin ketiga]
+- **Paragraf**: Jarak antar poin maksimal 1 baris kosong
 
-Context:
+## GAYA BAHASA:
+${wantsDetail 
+  ? '- **Mode detail**: Lebih lengkap dan rinci, tetap ringkas per poin\n- **Prosedur/syarat**: Gunakan format poin berurutan' 
+  : '- **Definisi**: 4–7 kalimat ringkas\n- **Penjelasan umum**: 7–12 kalimat\n- **Prosedur/syarat**: Format poin'}
+
+## CONTEXT YANG TERSEDIA:
 ${contextText}
 
-Tutup jawaban dengan:
-"Apakah penjelasan ini sudah cukup, atau masih ada bagian lain yang ingin Anda ketahui?"`,
-          num_predict: wantsDetail
-            ? (fast ? CFG.FAST_NUM_PREDICT_DETAIL : CFG.NUM_PREDICT_DETAIL)
-            : (fast ? CFG.FAST_NUM_PREDICT_NORMAL : CFG.NUM_PREDICT_NORMAL),
+## PERTANYAAN USER:
+${userQuery}
+
+## INSTRUKSI AKHIR:
+1. Jawab berdasarkan Context di atas
+2. Pastikan setiap fakta memiliki sitasi
+3. Gunakan bahasa Indonesia yang formal dan rapi
+4. Misalkan tidak menemukan jawabannya maka berikan informasi yang cukup mirip dan tambahkan "Berikut informasi yang mungkin sesuai."
+5. Tutup dengan: "Apakah penjelasan ini sudah cukup, atau ada bagian lain yang ingin Anda ketahui?"
+6. Buatlah jawaban ini dalam bahasa ${language}`,
+          num_predict: wantsDetail ? CFG.NUM_PREDICT_DETAIL : CFG.NUM_PREDICT_NORMAL,
           temperature: CFG.TEMPERATURE,
         };
 
-        const genResp = await postOllamaWithFallback('generate', body, { timeoutMs: fast ? CFG.FAST_GEN_TIMEOUT_MS : CFG.GEN_TIMEOUT_MS, retry: 1 });
+        const genResp = await postOllamaWithFallback('generate', body, { timeoutMs: CFG.GEN_TIMEOUT_MS, retry: 1 });
         if (genResp && genResp.ok) {
           const genBody = await genResp.json();
           const extracted = extractTextFromOllamaResponse(genBody);
@@ -1620,11 +2002,9 @@ Tutup jawaban dengan:
       }
     }
 
-    if (!fast) {
-      answer = await polishAnswerWithGemma(answer);
-    }
+    // answer = await polishAnswerWithGemma(answer);
     answer = ensureClosingQuestion(answer, topic);
-    // remove debug suffix to avoid extra tokens
+    answer = `${answer}\n\nUPDATED v2 `;
 
 
     const nextMarker = {
@@ -1650,36 +2030,13 @@ Tutup jawaban dengan:
 
     const uniqueFilenames = [...new Set(sources.map((s) => s.filename).filter(Boolean))];
     const firstFile = uniqueFilenames[0] || anchorPayload.filename || 'document';
-    const docUrl = CFG.PUBLIC_BASE_URL ? `${CFG.PUBLIC_BASE_URL}/files/${firstFile}` : `/files/${firstFile}`;
+    const docUrl = CFG.PUBLIC_BASE_URL ? `${CFG.PUBLIC_BASE_URL}/data/${firstFile}` : `/data/${firstFile}`;
 
     const finalAnswer =
       `${answer}\n\n---\n\n` +
       `[Link dokumen: ${firstFile}](${docUrl})\n\n` +
       `Jika masih kurang detail, balas "lanjut" (bertahap) atau "detail" (lebih panjang).\n\n` +
-      `[Kalo membutuhkan dokumen lebih rinci](https://info-bif.telkomuniversity.ac.id/links)`;
-
-    // cache the response for short TTL when fast cache is enabled
-    try {
-      if (CFG.FAST_CACHE_ENABLED) {
-        const cachePayload = {
-          answer: finalAnswer,
-          sources: sources.map((s) => ({
-            ...s,
-            url: CFG.PUBLIC_BASE_URL ? `${CFG.PUBLIC_BASE_URL}/files/${s.filename}` : `/files/${s.filename}`,
-          })),
-          raw_hits: relevant.slice(0, top_k).map((h) => ({
-            id: h.id,
-            score: h.reranked_score || h.score || 0,
-            filename: h?.payload?.filename,
-            page: h?.payload?.page,
-            order: h?.payload?.order,
-            chunk_index: h?.payload?.chunk_index,
-            topic: h?.payload?.topic,
-          })),
-        };
-        cacheSet(cacheKey, cachePayload);
-      }
-    } catch {}
+      `[Kalo membutuhkan dokumen lebih rinci](https://linktr.ee/fit.telkomuniversity)`;
 
     await persistMessage(id_user, 'bot', finalAnswer, 'answer', null, null);
 
@@ -1687,7 +2044,7 @@ Tutup jawaban dengan:
       answer: finalAnswer,
       sources: sources.map((s) => ({
         ...s,
-        url: CFG.PUBLIC_BASE_URL ? `${CFG.PUBLIC_BASE_URL}/files/${s.filename}` : `/files/${s.filename}`,
+        url: CFG.PUBLIC_BASE_URL ? `${CFG.PUBLIC_BASE_URL}/data/${s.filename}` : `/data/${s.filename}`,
       })),
       raw_hits: relevant.slice(0, top_k).map((h) => ({
         id: h.id,
