@@ -298,7 +298,6 @@ const handleDeleteChat = (e, chatId) => {
     }
 };
 
-
 const handleSend = (e, overrideText = null) => {
     e.preventDefault();
     const textToSend = overrideText || input.trim();
@@ -337,7 +336,7 @@ const handleSend = (e, overrideText = null) => {
                 setLoading(true);
                 // add a temporary loading bot message
                 const loadingId = `loading-${Date.now()}`;
-                const loadingMsg = { id: loadingId, sender: 'bot', text: 'Thinking...' };
+                const loadingMsg = { id: loadingId, sender: 'bot', text: 'Berpikir...' };
                 
                 setConversations(prev => {
                     const updated = { ...prev };
@@ -461,12 +460,12 @@ return (
         <aside className="chat-sidebar">
             <div className="brand">Chat</div>
             <button className="new-chat-btn" onClick={handleNewChat}>
-                + New Chat
+                + Chat baru
             </button>
             <div className="sidebar-search">
                 <input
                     type="text"
-                    placeholder="Search chat..."
+                    placeholder="Cari chat..."
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                 />
@@ -514,7 +513,7 @@ return (
                                 if (onLogout) onLogout();
                             }}
                         >
-                            Logout
+                            Keluar
                         </button>
                     </div>
                 )}
@@ -523,7 +522,7 @@ return (
 
         <main className="chat-main">
             <header className="chat-header">
-                Welcome, {user?.username || user?.email}
+                Selamat datang, {user?.username || user?.email}
             </header>
             {/* search moved to the sidebar */}
             <div className="messages">
@@ -580,11 +579,11 @@ return (
                     </div>
                 )}
                 <input
-                    placeholder="Ask anything..."
+                    placeholder="Tanyakan apa saja..."
                     value={input}
                     onChange={e => setInput(e.target.value)}
                 />
-                <button type="submit">Send</button>
+                <button type="submit">Kirim</button>
             </form>
         </main>
     </div>

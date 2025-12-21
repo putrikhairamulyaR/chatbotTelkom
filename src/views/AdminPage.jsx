@@ -90,12 +90,12 @@ export default function AdminPage({ user, onLogout }) {
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Failed to upload file' }));
-        throw new Error(err.error || 'Failed to upload file');
+        const err = await res.json().catch(() => ({ error: 'Gagal mengunggah file' }));
+        throw new Error(err.error || 'Gagal mengunggah file');
       }
 
       const data = await res.json();
-      showToast(data.message || 'File berhasil diupload', 'success');
+      showToast(data.message || 'File berhasil ditambah', 'success');
       // Reset and close the upload panel
       setSelectedFile(null);
       setUploadTopic('');
@@ -455,11 +455,11 @@ export default function AdminPage({ user, onLogout }) {
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || 'Failed to upload file');
+        throw new Error(err.error || 'Gagal Mengunggah File');
       }
 
       const data = await res.json();
-      showToast(data.message || 'File berhasil diupload', 'success');
+      showToast(data.message || 'File berhasil ditambah', 'success');
       fetchResources();
       e.target.value = ''; // Reset input
       // keep topic/subtopic for next file, or clear if you prefer
@@ -606,7 +606,7 @@ export default function AdminPage({ user, onLogout }) {
                     onLogout && onLogout();
                   }}
                 >
-                  Logout
+                  Keluar
                 </button>
               </div>
             )}
@@ -1146,7 +1146,7 @@ export default function AdminPage({ user, onLogout }) {
               {showUploadPanel && (
                 <div className="modal-overlay" onClick={() => setShowUploadPanel(false)}>
                   <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-                    <h3>Upload Dokumen Baru</h3>
+                    <h3>Tambah Dokumen Baru</h3>
                     <div
                       className="upload-drop"
                       style={{
@@ -1165,8 +1165,8 @@ export default function AdminPage({ user, onLogout }) {
                     >
                       <div style={{ fontSize: 32 }}>📄</div>
                       <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontWeight: 600, color: '#111827' }}>Pilih dokumen untuk diupload</div>
-                        <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>Upload: PDF/TXT/MD/DOC/DOCX • Embed: PDF/TXT/MD/DOCX (Word disimpan 1 vector)</div>
+                        <div style={{ fontWeight: 600, color: '#111827' }}>Pilih dokumen untuk ditambah</div>
+                        <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>Tambah: PDF/TXT/MD/DOC/DOCX • Embed: PDF/TXT/MD/DOCX (Word disimpan 1 vector)</div>
                         {selectedFile && (
                           <div style={{ marginTop: 8, color: '#2563eb', fontWeight: 500 }}>✓ Dipilih: {selectedFile.name}</div>
                         )}
@@ -1229,7 +1229,7 @@ export default function AdminPage({ user, onLogout }) {
                 </div>
               )}
               <p className="info-text">
-                Upload dokumen PDF/TXT/MD/DOCX. Embed ke Qdrant mendukung PDF/TXT/MD/DOCX. Untuk Word (DOCX), konten tidak di-chunk dan disimpan sebagai satu vector.
+                Tambah dokumen PDF/TXT/MD/DOCX. Embed ke Qdrant mendukung PDF/TXT/MD/DOCX. Untuk Word (DOCX), konten tidak di-chunk dan disimpan sebagai satu vector.
               </p>
               <table className="data-table">
                 <thead>
@@ -1291,7 +1291,7 @@ export default function AdminPage({ user, onLogout }) {
                 </tbody>
               </table>
               {resources.length === 0 && !loading && (
-                <p className="empty-message">Tidak ada dokumen yang tersimpan. Upload dokumen untuk memulai.</p>
+                <p className="empty-message">Tidak ada dokumen yang tersimpan. Tambah dokumen untuk memulai.</p>
               )}
             </div>
           )}
